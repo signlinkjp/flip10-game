@@ -1,0 +1,10 @@
+{
+  "appId": "jp.signlink.Flip10",
+  "appName": "FLIP 10",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#070b1c",
+    "scrollEnabled": false
+  }
+}
