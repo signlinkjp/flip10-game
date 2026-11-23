@@ -1,22 +1,28 @@
 /**
- * FLIP 10 — 画面と操作
+ * FLIP 10 — 画面と操作（Build 2）
  *
- * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、課金は src/pro.js。
+ * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、
+ * バイブは src/haptics.js、課金は src/pro.js、記録は src/storage.js。
  * ここは「盤面を描く・タップを受ける・シートを開く」だけを持つ。
  *
- * 1回のタップで core.tapTile() が「反転 → 消えるライン → 落ちてくる盤面」を
- * 全部計算して返すので、ここはその順番どおりに見せる。
+ * 1回の入れ替えで core.swapTiles() が「入れ替え → 消えるライン → 落ちてくる盤面 →
+ * 手数の回復 → ゲームオーバー」を全部計算して返すので、ここはその順番どおりに見せる。
  */
 
 import * as core from './core.js';
 import * as i18n from './i18n.js';
 import { createAudioEngine } from './audio.js';
+import { createHaptics } from './haptics.js';
 import * as pro from './pro.js';
 import * as storage from './storage.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const COMBO_KEYS = ['combo.nice', 'combo.great', 'combo.super', 'combo.amazing', 'combo.fever'];
+/** 何も操作がないままヒントを出すまでの時間（ヒント ON のとき） */
+const IDLE_HINT_MS = 9000;
 
 /* ------------------------------------------------------------------ */
 /* 状態                                                                */
@@ -32,15 +38,24 @@ const state = {
   game: null,
   busy: false,
   bests: storage.loadBests(),
+  build: core.BUILD,
   shownScore: 0,
   timer: null,
   lastTick: 0,
   toastTimer: null,
-  removed: false,
+  selected: null,
+  hintTimer: null,
+  hintShown: false,
+  idleTimer: null,
+  lastMoves: null,
 };
 
 const audio = createAudioEngine({
   muted: !state.settings.sound,
+});
+
+const haptics = createHaptics({
+  enabled: state.settings.haptic,
 });
 
 /* ------------------------------------------------------------------ */
@@ -78,12 +93,13 @@ function pairMarkup({ front, back }) {
 
 function buildLegend(node) {
   if (!node) return;
-  const pairs = core.pairLegend(core.RULES.base);
+  const pairs = core.pairLegend();
   node.innerHTML = `<span class="legend__title">${i18n.t('howto.legend', state.locale)}</span>${pairs.map(pairMarkup).join('')}`;
 }
 
 function refreshTexts() {
   document.documentElement.setAttribute('lang', i18n.localeMeta(state.locale).tag);
+  applyTextSize();
   i18n.applyI18n(document, state.locale);
   document.title = 'FLIP 10';
 
@@ -103,18 +119,32 @@ function refreshTexts() {
   buildPrivacy();
   updateVersion();
   updateHomeBest();
+  if (state.game) updatePlayLegend();
+}
+
+function applyTextSize() {
+  document.documentElement.dataset.text = state.settings.textSize || 'normal';
 }
 
 function updateVersion() {
   const node = $('#settings-version');
-  if (node) node.textContent = `${i18n.t('settings.version', state.locale)} ${core.VERSION} (Build ${core.BUILD}) · T-maks Games`;
+  if (node) node.textContent = `${i18n.t('settings.version', state.locale)} ${core.VERSION} (Build ${state.build}) · T-maks Games`;
 }
 
 function updateRulesInfo() {
   const node = $('#rules-target');
-  if (node) node.textContent = i18n.t('rules.target', state.locale, { target: state.settings.target });
-  $$('#set-target button').forEach((button) => {
-    const on = Number(button.dataset.target) === state.settings.target;
+  if (node) {
+    node.textContent = i18n.t('rules.line', state.locale, {
+      row: state.settings.rowTarget,
+      col: state.settings.colTarget,
+    });
+  }
+  const row = $('#set-row-target');
+  const col = $('#set-col-target');
+  if (row) row.textContent = String(state.settings.rowTarget);
+  if (col) col.textContent = String(state.settings.colTarget);
+  $$('#set-text-size button').forEach((button) => {
+    const on = button.dataset.size === state.settings.textSize;
     button.classList.toggle('is-on', on);
     button.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
@@ -123,8 +153,16 @@ function updateRulesInfo() {
 function updateSwitches() {
   setSwitch($('#set-sound'), state.settings.sound);
   setSwitch($('#set-bgm'), state.settings.bgm);
+  setSwitch($('#set-haptic'), state.settings.haptic);
+  setSwitch($('#set-hint'), state.settings.hint);
   const soundIcon = $('#btn-sound-play use');
   if (soundIcon) soundIcon.setAttribute('href', state.settings.sound ? '#i-sound-on' : '#i-sound-off');
+  const hintButtons = [$('#btn-hint'), $('#btn-hint-foot')];
+  for (const button of hintButtons) {
+    if (!button) continue;
+    button.classList.toggle('is-off', !state.settings.hint);
+    button.setAttribute('aria-disabled', state.settings.hint ? 'false' : 'true');
+  }
 }
 
 function setSwitch(node, on) {
@@ -191,40 +229,46 @@ function setLocale(id) {
 /* ホーム                                                              */
 /* ------------------------------------------------------------------ */
 
-const DEMO_ROWS = [
-  [3, 4, 3],
-  [2, 5, 1],
-  [4, 0, 3],
-];
+/** 1と2を入れ替えると 2+3+5=10 になる小さな見本 */
+const DEMO = {
+  values: [1, 3, 5, 4, 2, 0, 3, 4, 3],
+  pair: [0, 4],
+  lit: [0, 1, 2],
+};
 
 function buildHomeDemo() {
   const box = $('#hero-demo');
   if (!box) return;
   box.innerHTML = '';
-  DEMO_ROWS.flat().forEach((value, i) => {
+  DEMO.values.forEach((value, i) => {
     const tile = document.createElement('span');
     tile.className = 'demo-tile';
-    if (i === 4 || i === 6) tile.classList.add('is-back');
-    if (i < 3) tile.classList.add('is-lit');
-    tile.textContent = String(i === 4 || i === 6 ? core.PAIR_SUM - value : value);
+    if (DEMO.pair[0] === i) tile.classList.add('is-swap-a');
+    if (DEMO.pair[1] === i) tile.classList.add('is-swap-b');
+    if (DEMO.lit.includes(i)) tile.classList.add('is-lit');
+    tile.textContent = String(value);
     box.appendChild(tile);
   });
 }
 
 function updatePlayLegend() {
   const node = $('#play-legend');
-  if (!node) return;
+  const target = $('#targetbar');
+  const targetText = $('#target-text');
   const game = state.game;
-  if (!game) {
+  if (game && targetText) {
+    targetText.textContent = i18n.t('rules.line', state.locale, { row: game.targets.rows, col: game.targets.cols });
+  }
+  if (target) target.hidden = Boolean(game && game.mechanic === core.MECHANIC.flip);
+  if (!node) return;
+  if (!game || game.mechanic !== core.MECHANIC.flip) {
+    node.hidden = true;
     node.innerHTML = '';
     return;
   }
-  if (game.rule === core.RULES.base) {
-    const pairs = core.pairLegend(core.RULES.base);
-    node.innerHTML = `<span class="legend__title">${i18n.t('howto.legend', state.locale)}</span>${pairs.map(pairMarkup).join('')}`;
-  } else {
-    node.innerHTML = `<span class="legend__title">RULE A</span><span class="playlegend__note">${i18n.t('rules.advanced', state.locale)}</span>`;
-  }
+  const pairs = core.pairLegend();
+  node.hidden = false;
+  node.innerHTML = `<span class="legend__title">${i18n.t('howto.legend', state.locale)}</span>${pairs.map(pairMarkup).join('')}`;
 }
 
 function updateHomeBest() {
@@ -239,17 +283,44 @@ function updateHomeBest() {
 function buildBoard(game) {
   const board = $('#board');
   if (!board) return;
-  board.className = `board board--${game.size}${game.peek ? ' board--peek' : ''}`;
+  board.className = `board board--${game.size}`;
   board.innerHTML = '';
+  board.style.setProperty('--n', String(game.size));
+  const wrap = $('#board-wrap');
+  if (wrap) wrap.style.setProperty('--n', String(game.size));
   for (let i = 0; i < game.size * game.size; i += 1) {
     const tile = document.createElement('button');
     tile.type = 'button';
     tile.className = 'tile';
     tile.dataset.i = String(i);
-    tile.innerHTML = '<span class="tile__value"></span><span class="tile__peek"></span>';
+    tile.innerHTML = '<span class="tile__value"></span>';
     board.appendChild(tile);
   }
+  buildSumSlots(game);
   paintBoard(game);
+}
+
+function buildSumSlots(game) {
+  const rows = $('#sums-rows');
+  const cols = $('#sums-cols');
+  if (rows) {
+    rows.innerHTML = '';
+    for (let r = 0; r < game.size; r += 1) {
+      const badge = document.createElement('span');
+      badge.className = 'sum';
+      badge.dataset.row = String(r);
+      rows.appendChild(badge);
+    }
+  }
+  if (cols) {
+    cols.innerHTML = '';
+    for (let c = 0; c < game.size; c += 1) {
+      const badge = document.createElement('span');
+      badge.className = 'sum';
+      badge.dataset.col = String(c);
+      cols.appendChild(badge);
+    }
+  }
 }
 
 function paintTile(node, tile) {
@@ -257,8 +328,7 @@ function paintTile(node, tile) {
   const value = core.displayValue(tile);
   const text = node.querySelector('.tile__value');
   if (text) text.textContent = String(value);
-  const peek = node.querySelector('.tile__peek');
-  if (peek) peek.textContent = String(tile.back);
+  node.dataset.v = String(value);
   node.classList.toggle('is-back', tile.side === core.SIDES.back);
   node.setAttribute('aria-label', String(value));
 }
@@ -266,22 +336,58 @@ function paintTile(node, tile) {
 function paintBoard(game) {
   const nodes = $$('#board .tile');
   for (let i = 0; i < nodes.length; i += 1) paintTile(nodes[i], game.board[i]);
+  paintSelection();
+  renderSums(game);
 }
 
 function tileNode(index) {
   return $(`#board .tile[data-i="${index}"]`);
 }
 
-function markFlipping(indices, board) {
-  for (const i of indices) {
-    const node = tileNode(i);
-    if (!node) continue;
-    node.classList.add('is-flipping');
-    setTimeout(() => {
-      paintTile(node, board[i]);
-      node.classList.remove('is-flipping');
-    }, 120);
-  }
+function paintSelection() {
+  $$('#board .tile.is-picked').forEach((node) => node.classList.remove('is-picked'));
+  if (state.selected === null) return;
+  const node = tileNode(state.selected);
+  if (node) node.classList.add('is-picked');
+}
+
+function clearHintTiles() {
+  $$('#board .tile.is-hint').forEach((node) => node.classList.remove('is-hint'));
+  state.hintShown = false;
+}
+
+/** 行・列の合計を右と下のバッジに出す */
+function renderSums(game, { clearedRows = [], clearedCols = [] } = {}) {
+  if (!game) return;
+  const { rows, cols } = core.sums(game.board, game.size);
+  const rowNodes = $$('#sums-rows .sum');
+  const colNodes = $$('#sums-cols .sum');
+  rowNodes.forEach((node, r) => {
+    const value = rows[r];
+    node.textContent = String(value);
+    node.classList.toggle('is-hit', value === game.targets.rows);
+    node.classList.toggle('is-near', value !== game.targets.rows && Math.abs(value - game.targets.rows) <= 2);
+    node.classList.remove('is-cleared');
+    if (clearedRows.includes(r)) {
+      node.classList.remove('is-cleared');
+      void node.offsetWidth;
+      node.classList.add('is-cleared');
+      setTimeout(() => node.classList.remove('is-cleared'), 520);
+    }
+  });
+  colNodes.forEach((node, c) => {
+    const value = cols[c];
+    node.textContent = String(value);
+    node.classList.toggle('is-hit', value === game.targets.cols);
+    node.classList.toggle('is-near', value !== game.targets.cols && Math.abs(value - game.targets.cols) <= 2);
+    node.classList.remove('is-cleared');
+    if (clearedCols.includes(c)) {
+      node.classList.remove('is-cleared');
+      void node.offsetWidth;
+      node.classList.add('is-cleared');
+      setTimeout(() => node.classList.remove('is-cleared'), 520);
+    }
+  });
 }
 
 function flashCells(cells) {
@@ -294,7 +400,6 @@ function flashCells(cells) {
 function clearFlash() {
   $$('#board .tile.is-clearing').forEach((node) => {
     node.classList.remove('is-clearing');
-    node.style.opacity = '';
   });
 }
 
@@ -303,15 +408,16 @@ function dropTiles(indices, board) {
     const node = tileNode(i);
     if (!node) continue;
     paintTile(node, board[i]);
+    node.classList.remove('is-dropping');
+    void node.offsetWidth;
     node.classList.add('is-dropping');
-    setTimeout(() => node.classList.remove('is-dropping'), 340);
+    setTimeout(() => node.classList.remove('is-dropping'), 360);
   }
 }
 
-function burstParticles(cells) {
+function burstParticles(cells, count = 5) {
   const fx = $('#fx');
-  const board = $('#board');
-  if (!fx || !board) return;
+  if (!fx) return;
   const base = fx.getBoundingClientRect();
   for (const index of cells) {
     const node = tileNode(index);
@@ -319,44 +425,63 @@ function burstParticles(cells) {
     const rect = node.getBoundingClientRect();
     const cx = rect.left - base.left + rect.width / 2;
     const cy = rect.top - base.top + rect.height / 2;
-    for (let n = 0; n < 5; n += 1) {
+    for (let n = 0; n < count; n += 1) {
       const dot = document.createElement('i');
-      dot.className = `particle${n % 2 ? ' particle--pink' : ''}`;
-      const angle = (Math.PI * 2 * n) / 5 + Math.random() * 0.7;
-      const distance = 26 + Math.random() * 34;
+      const tones = ['', ' particle--pink', ' particle--blue', ' particle--mint'];
+      dot.className = `particle${tones[n % tones.length]}`;
+      const angle = (Math.PI * 2 * n) / count + Math.random() * 0.8;
+      const distance = 24 + Math.random() * (30 + count * 2);
       dot.style.left = `${cx}px`;
       dot.style.top = `${cy}px`;
       dot.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
-      dot.style.setProperty('--dy', `${Math.sin(angle) * distance - 10}px`);
-      dot.style.animationDelay = `${Math.random() * 60}ms`;
+      dot.style.setProperty('--dy', `${Math.sin(angle) * distance - 12}px`);
+      dot.style.animationDelay = `${Math.random() * 50}ms`;
       fx.appendChild(dot);
-      setTimeout(() => dot.remove(), 760);
+      setTimeout(() => dot.remove(), 820);
     }
   }
 }
 
 let comboHideTimer = null;
 
-function showCombo(step) {
+/** コンボの段に合わせて、見出しい・音・光・粒を派手にする */
+function celebrate(step) {
+  const rank = core.comboRank(step.combo) + 1;
   const node = $('#combo');
-  if (!node) return;
-  const multiplier = step.combo * step.chain;
-  const label = multiplier > 1 ? `${i18n.t('hud.combo', state.locale).toUpperCase()} ×${multiplier} ` : '';
-  node.textContent = `${label}+${formatNumber(step.points)}`;
-  node.classList.remove('is-show');
-  void node.offsetWidth;
-  node.classList.add('is-show');
-  if (comboHideTimer) clearTimeout(comboHideTimer);
-  comboHideTimer = setTimeout(() => node.classList.remove('is-show'), 950);
+  const word = $('#combo-word');
+  const points = $('#combo-points');
+  if (node) {
+    if (word) word.textContent = i18n.t(COMBO_KEYS[rank - 1], state.locale);
+    if (points) points.textContent = `+${formatNumber(step.points)}`;
+    node.className = `combo combo--${rank}`;
+    void node.offsetWidth;
+    node.classList.add('is-show');
+    if (comboHideTimer) clearTimeout(comboHideTimer);
+    comboHideTimer = setTimeout(() => node.classList.remove('is-show'), 980);
+  }
+  const board = $('#board');
+  if (board) {
+    board.classList.remove('is-celebrate', 'is-fever');
+    void board.offsetWidth;
+    board.classList.add(rank >= 3 ? 'is-fever' : 'is-celebrate');
+    setTimeout(() => board.classList.remove('is-celebrate', 'is-fever'), 900);
+  }
+  audio.clear({ combo: step.combo, lines: step.lines });
+  if (step.combo >= 2) haptics.combo();
+  else haptics.clear();
+  burstParticles(step.cells, 4 + rank * 3);
 }
 
-/** ゲームを離れるとき、前のコンボ表示を消す（画面に戻ったときに再生されない） */
 function resetCombo() {
   const node = $('#combo');
   if (!node) return;
   if (comboHideTimer) clearTimeout(comboHideTimer);
   node.classList.remove('is-show');
-  node.textContent = '';
+  node.className = 'combo';
+  const word = $('#combo-word');
+  if (word) word.textContent = '';
+  const points = $('#combo-points');
+  if (points) points.textContent = '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -373,7 +498,35 @@ function showScreen(name) {
 /* HUD                                                                 */
 /* ------------------------------------------------------------------ */
 
-function updateHud() {
+function renderPips(game, { gained = 0, lost = 0 } = {}) {
+  const box = $('#moves-pips');
+  const wrap = $('#movesbar');
+  if (!box || !wrap) return;
+  if (!game || !game.life) {
+    wrap.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  wrap.hidden = false;
+  if (box.children.length !== game.maxMoves) {
+    box.innerHTML = '';
+    for (let i = 0; i < game.maxMoves; i += 1) box.appendChild(document.createElement('i'));
+  }
+  [...box.children].forEach((pip, i) => {
+    pip.classList.toggle('is-on', i < game.moves);
+    pip.classList.remove('is-lost', 'is-gain');
+    if (lost > 0 && i >= game.moves && i < game.moves + lost) {
+      void pip.offsetWidth;
+      pip.classList.add('is-lost');
+    }
+    if (gained > 0 && i >= game.moves - gained && i < game.moves) {
+      void pip.offsetWidth;
+      pip.classList.add('is-gain');
+    }
+  });
+}
+
+function updateHud({ gained = 0, lost = 0 } = {}) {
   const game = state.game;
   const score = $('#hud-score');
   if (score && game) {
@@ -393,10 +546,19 @@ function updateHud() {
       updateHomeBest();
     }
   }
+  if (game) {
+    const targetText = $('#target-text');
+    if (targetText) {
+      targetText.textContent = i18n.t('rules.line', state.locale, { row: game.targets.rows, col: game.targets.cols });
+    }
+  }
   const best = $('#hud-best');
   if (best && game) best.textContent = formatNumber(currentBest());
-  const target = $('#hud-target');
-  if (target && game) target.textContent = String(game.target);
+  const movesWrap = $('#hud-moves-wrap');
+  const movesNode = $('#hud-moves');
+  if (movesWrap) movesWrap.hidden = !(game && game.life);
+  if (movesNode && game && game.life) movesNode.textContent = String(game.moves);
+  renderPips(game, { gained, lost });
 
   const timeWrap = $('#hud-time-wrap');
   const timeNode = $('#hud-time');
@@ -444,23 +606,37 @@ function saveBest() {
 
 function startGame(modeId, timeLimit) {
   closeSheet();
+  clearIdle();
   audio.unlock();
+  const config = core.modeById(modeId);
+  const rows = state.entitled ? state.settings.rowTarget : core.DEFAULT_TARGET;
+  const cols = state.entitled ? state.settings.colTarget : core.DEFAULT_TARGET;
   state.game = core.startGame({
     mode: modeId,
-    target: state.settings.target,
+    rowTarget: rows,
+    colTarget: cols,
     timeLimit,
   });
   state.shownScore = 0;
   state.busy = false;
+  state.selected = null;
+  state.hintShown = false;
+  state.lastMoves = state.game.moves;
   state.bestAtStart = state.bests[core.gameKey(state.game.modeId, state.game.timeLimit)] ?? 0;
   resetCombo();
   clearFlash();
+  clearHintTiles();
   buildBoard(state.game);
   updatePlayLegend();
   showScreen('play');
   updateHud();
   startTimer();
   audio.tap();
+  if (Math.max(rows, cols) > core.maxTargetFor(state.game.size)) {
+    // 4×4 の上限を超える設定は 36 に丸められる（HUD の合計で分かる）
+    toast(i18n.t('toast.cap', state.locale));
+  }
+  scheduleIdleHint();
 }
 
 function startTimer() {
@@ -488,11 +664,18 @@ function stopTimer() {
 function endRun() {
   if (!state.game || state.game.status !== core.STATUS.over) return;
   stopTimer();
+  clearIdle();
+  state.selected = null;
+  paintSelection();
   const isNew = state.game.score > (state.bestAtStart ?? 0);
   saveBest();
   state.shownScore = state.game.score;
   updateHud();
 
+  const title = $('#result-title');
+  if (title) {
+    title.textContent = i18n.t(state.game.overReason === core.OVER_REASON.time ? 'result.timeUp' : 'result.movesOut', state.locale);
+  }
   const scoreNode = $('#result-score');
   const bestNode = $('#result-best');
   const linesNode = $('#result-lines');
@@ -502,16 +685,19 @@ function endRun() {
   if (linesNode) linesNode.textContent = formatNumber(state.game.clearedLines);
   if (recordNode) recordNode.hidden = !isNew;
   audio.over();
-  openSheet('result');
+  haptics.over();
+  setTimeout(() => openSheet('result'), 260);
 }
 
 function goHome() {
   stopTimer();
+  clearIdle();
   saveBest();
   resetCombo();
   closeSheet();
   state.game = null;
   state.busy = false;
+  state.selected = null;
   showScreen('home');
   updateHomeBest();
 }
@@ -520,53 +706,212 @@ function goHome() {
 /* タップ                                                              */
 /* ------------------------------------------------------------------ */
 
-async function onTileTap(event) {
-  const node = event.currentTarget;
-  const index = Number(node.dataset.i);
-  const game = state.game;
-  if (!game || state.busy || game.status !== core.STATUS.playing || !Number.isFinite(index)) return;
+function scheduleIdleHint() {
+  clearIdle();
+  if (!state.settings.hint) return;
+  state.idleTimer = setTimeout(() => {
+    if (!state.game || state.game.status !== core.STATUS.playing || state.busy) return;
+    showHint({ silent: true });
+  }, IDLE_HINT_MS);
+}
 
-  state.busy = true;
+function clearIdle() {
+  if (state.idleTimer) {
+    clearTimeout(state.idleTimer);
+    state.idleTimer = null;
+  }
+}
+
+function showHint({ silent = false } = {}) {
+  const game = state.game;
+  if (!game || game.status !== core.STATUS.playing) return false;
+  if (!state.settings.hint) return false;
+  clearHintTiles();
+  const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
+  if (!hint) {
+    renderSums(game);
+    return false;
+  }
+  const indices = hint.mechanic === core.MECHANIC.flip ? [hint.index] : [hint.a, hint.b];
+  for (const index of indices) {
+    const node = tileNode(index);
+    if (node) node.classList.add('is-hint');
+  }
+  state.hintShown = true;
+  if (state.hintTimer) clearTimeout(state.hintTimer);
+  state.hintTimer = setTimeout(() => clearHintTiles(), 2800);
+  if (!silent) {
+    haptics.select();
+    audio.tap();
+  }
+  return true;
+}
+
+async function onTileTap(index) {
+  const game = state.game;
+  if (!game || state.busy || game.status !== core.STATUS.playing) return;
+  if (!Number.isFinite(index)) return;
+
   audio.unlock();
+  clearIdle();
+  clearHintTiles();
+
+  if (game.mechanic === core.MECHANIC.flip) {
+    await doFlip(index);
+    return;
+  }
+
+  if (state.selected === null) {
+    state.selected = index;
+    paintSelection();
+    haptics.select();
+    audio.tap();
+    scheduleIdleHint();
+    return;
+  }
+
+  if (state.selected === index) {
+    state.selected = null;
+    paintSelection();
+    audio.tap();
+    scheduleIdleHint();
+    return;
+  }
+
+  const first = state.selected;
+  state.selected = null;
+  paintSelection();
+  await doSwap(first, index);
+}
+
+/**
+ * アニメの途中でタイムアップしていたら、その「終了」を残す。
+ * （計算済みの result.game で上書きすると、0秒のままプレイが続いてしまう）
+ */
+function applyFinalGame(next) {
+  const live = state.game;
+  if (live && live.status === core.STATUS.over) {
+    state.game = {
+      ...next,
+      status: core.STATUS.over,
+      timeLeft: live.timeLeft,
+      overReason: live.overReason ?? next.overReason,
+    };
+    return;
+  }
+  state.game = next;
+}
+
+async function doSwap(a, b) {
+  state.busy = true;
+  state.lastMoves = state.game.moves;
+  haptics.swap();
   audio.flip();
 
-  const before = game.score;
-  const result = core.tapTile(game, index, Math.random);
+  const nodeA = tileNode(a);
+  const nodeB = tileNode(b);
+  for (const node of [nodeA, nodeB]) {
+    if (!node) continue;
+    node.classList.add('is-swapping');
+    setTimeout(() => node.classList.remove('is-swapping'), 240);
+  }
+  await wait(110);
+
+  const result = core.swapTiles(state.game, a, b, Math.random);
+  if (!result.swap) {
+    state.busy = false;
+    return;
+  }
+
+  const openingBoard = result.steps.length > 0 ? result.steps[0].board : result.game.board;
+  const tempGame = { ...state.game, board: openingBoard };
+  paintBoard(tempGame);
+
+  await playSteps(result);
+
+  applyFinalGame(result.game);
+  state.shownScore = state.game.score;
+  state.selected = null;
+  state.busy = false;
+  paintBoard(state.game);
+  updateHud({
+    gained: Math.max(0, result.reward),
+    lost: state.lastMoves !== null ? Math.max(0, state.lastMoves - state.game.moves) : 0,
+  });
+  afterMove(result);
+}
+
+async function doFlip(index) {
+  state.busy = true;
+  state.lastMoves = state.game.moves;
+  haptics.swap();
+  audio.flip();
+
+  const result = core.flipAt(state.game, index, Math.random);
   if (!result.flip) {
     state.busy = false;
     return;
   }
 
-  markFlipping(result.flip.flipped, result.flip.board);
-  await wait(260);
+  const nodes = result.flip.flipped;
+  for (const i of nodes) {
+    const node = tileNode(i);
+    if (!node) continue;
+    node.classList.remove('is-flipping');
+    void node.offsetWidth;
+    node.classList.add('is-flipping');
+    setTimeout(() => node.classList.remove('is-flipping'), 280);
+  }
+  const openingBoard = result.steps.length > 0 ? result.steps[0].board : result.game.board;
+  paintBoard({ ...state.game, board: openingBoard });
+  await wait(160);
 
-  let running = before;
+  await playSteps(result);
+
+  applyFinalGame(result.game);
+  state.shownScore = state.game.score;
+  state.busy = false;
+  paintBoard(state.game);
+  updateHud({
+    gained: Math.max(0, result.reward),
+    lost: state.lastMoves !== null ? Math.max(0, state.lastMoves - state.game.moves) : 0,
+  });
+  afterMove(result);
+}
+
+/** 消えるラインを1段ずつ見せる（コンボ） */
+async function playSteps(result) {
+  let running = state.shownScore;
+  let currentBoard = result.steps.length > 0 ? result.steps[0].board : null;
   for (const step of result.steps) {
-    audio.clear({ combo: step.combo, lines: step.lines });
+    if (currentBoard && step.board !== currentBoard) {
+      paintBoard({ ...state.game, board: step.board });
+    }
+    celebrate(step);
     flashCells(step.cells);
-    burstParticles(step.cells);
-    showCombo(step);
-    running += step.points;
-    state.shownScore = running;
+    state.shownScore = running + step.points;
     updateHud();
-    await wait(340);
+    await wait(360);
 
     clearFlash();
     dropTiles(step.changed, step.after);
     audio.drop();
+    renderSums({ ...state.game, board: step.after }, { clearedRows: step.rows, clearedCols: step.cols });
     await wait(220);
+    running += step.points;
+    currentBoard = step.after;
   }
-
-  // アニメの途中でタイムアップしていたら、その「終了」を残す
-  if (state.game && state.game.status === core.STATUS.over) {
-    state.game = { ...result.game, status: core.STATUS.over, timeLeft: state.game.timeLeft };
-  } else {
-    state.game = result.game;
-  }
-  state.shownScore = state.game.score;
-  paintBoard(state.game);
+  state.shownScore = running;
   updateHud();
-  state.busy = false;
+}
+
+function afterMove(result) {
+  if (result.reshuffled) toast(i18n.t('toast.shuffle', state.locale));
+  if (state.game.status === core.STATUS.over) {
+    endRun();
+    return;
+  }
+  scheduleIdleHint();
 }
 
 /* ------------------------------------------------------------------ */
@@ -588,6 +933,7 @@ function openSheet(name) {
   }
   if (name === 'privacy') buildPrivacy();
   if (name === 'pro') refreshProSheet();
+  if (name === 'settings') updateRulesInfo();
 }
 
 function closeSheet() {
@@ -636,6 +982,11 @@ function updateProUI() {
   const dev = $('#pro-dev');
   if (dev) dev.hidden = !pro.previewAllowed();
   setSwitch($('#set-dev'), pro.previewUnlocked());
+  $$('#set-target .stepper button').forEach((button) => {
+    button.disabled = !state.entitled;
+  });
+  const target = $('#set-target');
+  if (target) target.classList.toggle('is-locked', !state.entitled);
 }
 
 function refreshProSheet() {
@@ -721,7 +1072,52 @@ function toggleSetting(key) {
     audio.unlock();
     audio.setBgm(next);
   }
+  if (key === 'haptic') {
+    haptics.setEnabled(next);
+    if (next) haptics.select();
+  }
+  if (key === 'hint') {
+    if (!next) clearHintTiles();
+    scheduleIdleHint();
+  }
   updateSwitches();
+}
+
+function setTextSize(size) {
+  if (!storage.TEXT_SIZES.includes(size)) return;
+  state.settings = storage.updateSettings({ ...state.settings, textSize: size });
+  applyTextSize();
+  updateRulesInfo();
+  audio.tap();
+}
+
+function changeTarget(axis, step) {
+  if (!state.entitled) {
+    openSheet('pro');
+    return;
+  }
+  const key = axis === 'col' ? 'colTarget' : 'rowTarget';
+  const next = Math.min(core.MAX_TARGET, Math.max(core.MIN_TARGET, state.settings[key] + step));
+  if (next === state.settings[key]) return;
+  state.settings = storage.updateSettings({ ...state.settings, [key]: next });
+  updateRulesInfo();
+  audio.tap();
+  haptics.select();
+  toast(i18n.t('toast.target', state.locale, { row: state.settings.rowTarget, col: state.settings.colTarget }));
+}
+
+/* ------------------------------------------------------------------ */
+/* 一時停止（BGM をホーム画面に残さない）                              */
+/* ------------------------------------------------------------------ */
+
+function pauseAudioEverywhere() {
+  audio.pause();
+}
+
+function resumeAudioEverywhere() {
+  if (typeof document !== 'undefined' && document.hidden) return;
+  audio.resume();
+  if (state.game && state.game.timed) state.lastTick = performance.now();
 }
 
 /* ------------------------------------------------------------------ */
@@ -760,19 +1156,21 @@ function bind() {
 
   // play
   $('#btn-quit')?.addEventListener('click', goHome);
+  $('#btn-home')?.addEventListener('click', goHome);
   $('#board')?.addEventListener('click', (event) => {
     const tile = event.target.closest('.tile');
     if (!tile) return;
-    onTileTap({ currentTarget: tile });
+    onTileTap(Number(tile.dataset.i));
   });
-  $('#btn-home')?.addEventListener('click', goHome);
+  $('#btn-settings-play')?.addEventListener('click', () => openSheet('settings'));
+  $('#btn-hint')?.addEventListener('click', () => showHint());
+  $('#btn-hint-foot')?.addEventListener('click', () => showHint());
   $('#btn-restart')?.addEventListener('click', () => {
     const game = state.game;
     if (!game) return;
     saveBest();
     startGame(game.modeId, game.timeLimit || undefined);
   });
-  $('#btn-sound-play')?.addEventListener('click', () => toggleSetting('sound'));
 
   // sheets
   $$('[data-close-sheet]').forEach((node) => node.addEventListener('click', closeSheet));
@@ -787,15 +1185,17 @@ function bind() {
   });
   $('#set-sound')?.addEventListener('click', () => toggleSetting('sound'));
   $('#set-bgm')?.addEventListener('click', () => toggleSetting('bgm'));
-  $('#set-target')?.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-target]');
+  $('#set-haptic')?.addEventListener('click', () => toggleSetting('haptic'));
+  $('#set-hint')?.addEventListener('click', () => toggleSetting('hint'));
+  $('#set-text-size')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-size]');
     if (!button) return;
-    const target = Number(button.dataset.target);
-    if (!core.TARGETS.includes(target)) return;
-    state.settings = storage.updateSettings({ ...state.settings, target });
-    updateRulesInfo();
-    audio.tap();
-    toast(i18n.t('toast.target', state.locale, { target }));
+    setTextSize(button.dataset.size);
+  });
+  $('#set-target')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-step]');
+    if (!button) return;
+    changeTarget(button.dataset.axis, Number(button.dataset.step));
   });
   $('#lang-grid')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-locale]');
@@ -830,9 +1230,20 @@ function bind() {
     if (event.key === 'Escape' && state.sheet) closeSheet();
   });
 
+  // BGM をホーム画面・別アプリ・ロックに残さない（JS 側）
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) audio.revive();
+    if (document.hidden) pauseAudioEverywhere();
+    else resumeAudioEverywhere();
   });
+  window.addEventListener('pagehide', pauseAudioEverywhere);
+  window.addEventListener('beforeunload', pauseAudioEverywhere);
+  window.addEventListener('blur', pauseAudioEverywhere);
+  window.addEventListener('pageshow', resumeAudioEverywhere);
+  window.addEventListener('focus', resumeAudioEverywhere);
+
+  // iOS の AppDelegate からも呼べる小さな窓口
+  window.__flipPauseAudio = pauseAudioEverywhere;
+  window.__flipResumeAudio = resumeAudioEverywhere;
 
   // 最初の操作で音を起こす（iOS は操作の中でしか AudioContext を作れない）
   const unlock = () => audio.unlock();
@@ -847,10 +1258,20 @@ function boot() {
     state.settings = storage.updateSettings({ ...state.settings, locale: state.locale });
   }
   state.entitled = pro.initialEntitlement();
+  haptics.setEnabled(state.settings.haptic);
 
   refreshTexts();
   buildHomeDemo();
-  buildBoard({ size: core.FREE_SIZE, board: [], peek: false });
+  buildBoard({ size: core.FREE_SIZE, board: [], mechanic: core.MECHANIC.swap, targets: { rows: 10, cols: 10 } });
+  // 最初の空盤面は数字を出さない（ホームの背景用）
+  $$('#board .tile').forEach((node) => {
+    const value = node.querySelector('.tile__value');
+    if (value) value.textContent = '';
+    node.dataset.v = '0';
+  });
+  $$('.sum').forEach((node) => {
+    node.textContent = '';
+  });
   showScreen('home');
   bind();
 
@@ -882,6 +1303,7 @@ function boot() {
       openSheet,
       closeSheet,
       setEntitled,
+      showHint,
       get game() {
         return state.game;
       },
@@ -889,14 +1311,26 @@ function boot() {
         if (!state.game) return;
         state.game = {
           ...state.game,
-          board: values.map((value, i) => ({
-            front: sides[i] === 'back' ? core.PAIR_SUM - value : value,
-            back: sides[i] === 'back' ? value : core.PAIR_SUM - value,
-            side: sides[i] === 'back' ? core.SIDES.back : core.SIDES.front,
-          })),
+          board: values.map((value, i) => {
+            if (state.game.mechanic === core.MECHANIC.flip) {
+              return sides[i] === 'back'
+                ? { front: core.PAIR_SUM - value, back: value, side: core.SIDES.back }
+                : { front: value, back: core.PAIR_SUM - value, side: core.SIDES.front };
+            }
+            return { digit: value };
+          }),
         };
-        buildBoard(state.game);
+        paintBoard(state.game);
         updateHud();
+      },
+      setMoves(moves) {
+        if (!state.game) return;
+        state.game = { ...state.game, moves };
+        updateHud();
+      },
+      /** 失敗したときの切り分け用 */
+      hint() {
+        return core.findHint(state.game.board, state.game.size, state.game.targets, state.game.mechanic);
       },
     };
   }

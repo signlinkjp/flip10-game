@@ -45,18 +45,52 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {}
+    func applicationWillResignActive(_ application: UIApplication) {
+        // ホーム画面・通知・ロックへ移るとき。WebView の BGM と AudioSession を止める
+        AppDelegate.pauseAudioForBackground()
+    }
 
-    func applicationDidEnterBackground(_ application: UIApplication) {}
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        AppDelegate.pauseAudioForBackground()
+    }
 
     func applicationWillEnterForeground(_ application: UIApplication) {}
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // 戻ってきたら音を起こし直す（無音で戻る問題の対策）
         AppDelegate.activateAudioSession()
+        AppDelegate.runInWebView("window.__flipResumeAudio && window.__flipResumeAudio()")
     }
 
-    func applicationWillTerminate(_ application: UIApplication) {}
+    func applicationWillTerminate(_ application: UIApplication) {
+        AppDelegate.pauseAudioForBackground()
+    }
+
+    /// SceneDelegate が作るこのアプリのブリッジ（WebView を触るために覚えておく）
+    static weak var bridgeViewController: FlipBridgeViewController?
+
+    /// WebView の JS を、あれば呼ぶ（無くてもアプリは落とさない）
+    static func runInWebView(_ script: String) {
+        DispatchQueue.main.async {
+            guard let view = bridgeViewController else { return }
+            view.bridge?.webView?.evaluateJavaScript(script) { _, error in
+                if let error = error {
+                    NSLog("FLIP 10: web audio hook failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// BGM をホーム画面に残さない。JS 側の AudioContext を suspend し、
+    /// AVAudioSession も止める（どちらか片方でも鳴り続けないように二重にする）。
+    static func pauseAudioForBackground() {
+        runInWebView("window.__flipPauseAudio && window.__flipPauseAudio()")
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        } catch {
+            NSLog("FLIP 10: AVAudioSession deactivate failed: \(error)")
+        }
+    }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
@@ -74,6 +108,8 @@ final class FlipBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(StoreKitPlugin())
         bridge?.registerPluginInstance(FlipAudioPlugin())
+        bridge?.registerPluginInstance(FlipHapticsPlugin())
+        AppDelegate.bridgeViewController = self
     }
 }
 
@@ -88,7 +124,8 @@ public class FlipAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "FlipAudioPlugin"
     public let jsName = "FlipAudio"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise)
     ]
 
     @objc public func activate(_ call: CAPPluginCall) {
@@ -98,6 +135,55 @@ public class FlipAudioPlugin: CAPPlugin, CAPBridgedPlugin {
             "category": session.category.rawValue,
             "otherAudio": session.isOtherAudioPlaying
         ])
+    }
+
+    /// 画面を離れるときに呼ばれる。JS 側の suspend と合わせて確実に止める
+    @objc public func pause(_ call: CAPPluginCall) {
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            call.resolve(["active": false])
+        } catch {
+            call.resolve(["active": true, "diag": "\(error.localizedDescription)"])
+        }
+    }
+}
+
+/* FLIP 10 — バイブ（Haptics）のブリッジ。
+
+   Capacitor の外部パッケージは足さず、UIKit の Taptic Engine を直接呼ぶ。
+   www/src/haptics.js の `haptic({ kind })` が light / medium / heavy /
+   success / warning / error を送ってくる。
+
+   割り当て（www/src/main.js）:
+     タイル選択 light / 入れ替え・反転 medium / ライン消去 success /
+     コンボ2以上 heavy + success / ゲームオーバー error */
+@objc(FlipHapticsPlugin)
+public class FlipHapticsPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "FlipHapticsPlugin"
+    public let jsName = "FlipHaptics"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "haptic", returnType: CAPPluginReturnPromise)
+    ]
+
+    @objc public func haptic(_ call: CAPPluginCall) {
+        let kind = call.getString("kind") ?? "light"
+        DispatchQueue.main.async {
+            switch kind {
+            case "medium":
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            case "heavy":
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            case "success":
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            case "warning":
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            case "error":
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            default:
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+            call.resolve(["kind": kind])
+        }
     }
 }
 

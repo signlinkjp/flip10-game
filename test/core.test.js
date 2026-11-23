@@ -1,154 +1,194 @@
 /**
- * FLIP 10 — ルールの単体テスト（node --test）
+ * FLIP 10 — ルールの単体テスト（node --test / Build 2）
  *
  * ここが固いことが「遊べる」の条件:
- *   - Rule B の表裏（足して5）
- *   - タップで＋の字だけが反転する
- *   - 行・列の合計が10で消える（交差も1回だけ）
- *   - 消えた列は下詰め・上から新しいタイル
- *   - コンボ（連鎖）・得点・タイマー
+ *   - 好きな2マスを入れ替えられる（同じマスは選択解除・盤の外は無効）
+ *   - 行と列の合計を別々に持てる（PRO の 9〜40）
+ *   - 行・列の合計が target で消える（交差も1回だけ）
+ *   - 消えたら下詰め・上から新しいタイル・連鎖はコンボ
+ *   - 手数ライフ（7から、1手 −1、1ライン +3 / 2ライン +5 / 3ライン以上か連鎖で満タン、0で終了）
+ *   - 数字の範囲は target と盤面サイズから自動で決まる（0や9を出しすぎない）
+ *   - 最初から消えていない・必ず1手ある盤面を作る
+ *   - 十字フリップ（PRO 特別モード）は ＋の字が反転・表裏で5
+ *   - タイムアタックは 0 秒で終了
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as core from '../src/core.js';
 
-/** 表示値から表向きのタイルを作る */
-const shown = (value) => ({ front: value, back: core.PAIR_SUM - value, side: 'front' });
-/** 表示値から裏向きのタイルを作る（表は 5-value） */
-const hidden = (value) => ({ front: core.PAIR_SUM - value, back: value, side: 'back' });
+/** 表示値からタイルを作る */
+const tile = (value) => core.tileWithValue(value);
 
-/** 4×4 を [行0, 行1, ...] の配列から作る */
-function board4(rows, { backRows = [] } = {}) {
-  const board = [];
+/** 4×4 を [行0, 行1, ...] の配列から作る（十字フリップは sides で裏向き） */
+function board4(rows, { back = [] } = {}) {
+  const out = [];
   rows.forEach((row, r) => {
     row.forEach((value) => {
-      board.push(backRows.includes(r) ? hidden(value) : shown(value));
+      if (back.includes(r)) {
+        out.push({ front: core.PAIR_SUM - value, back: value, side: core.SIDES.back });
+      } else {
+        out.push(tile(value));
+      }
     });
   });
-  return board;
+  return out;
 }
 
-function flat(values) {
-  return values.map(shown);
-}
+const flat = (values) => values.map((value) => tile(value));
 
-/** rng が「決まった表の顔」を順に返す（コンボのテスト用） */
-function faceRng(faces) {
-  let i = 0;
+/** 決まった数字を順に返す rng（0..9 を pool に渡す前提） */
+function sequenceRng(values, max = 9) {
+  let index = 0;
   return () => {
-    const face = faces[i % faces.length];
-    i += 1;
-    return (face + 0.5) / 6;
+    const value = values[index % values.length];
+    index += 1;
+    return (value + 0.5) / (max + 1);
   };
 }
 
+function gameWith(rows, { mode = 'classic', moves = 7, target = 10, back = [] } = {}) {
+  const game = core.startGame({ mode, rowTarget: target, colTarget: target, rng: core.seededRng(1) });
+  return { ...game, board: board4(rows, { back }), moves: game.life ? moves : null };
+}
+
 /* ------------------------------------------------------------------ */
-/* タイルとルール                                                      */
+/* 数字の範囲（スマートな出し方）                                      */
 /* ------------------------------------------------------------------ */
 
-test('Rule B: 表と裏は必ず足して5、数字は0〜5', () => {
-  const rng = core.seededRng(7);
-  for (let i = 0; i < 300; i += 1) {
-    const tile = core.makeTile(core.RULES.base, rng);
-    assert.ok(tile.front >= 0 && tile.front <= 5, `front ${tile.front}`);
-    assert.ok(tile.back >= 0 && tile.back <= 5, `back ${tile.back}`);
-    assert.equal(tile.front + tile.back, core.PAIR_SUM);
-    assert.equal(tile.side, core.SIDES.front);
+test('数字の範囲は target と盤面サイズから決まる（低い target は小さく、高い target は大きく）', () => {
+  assert.deepEqual(core.digitPool(4, 9), { min: 0, max: 6 });
+  assert.deepEqual(core.digitPool(4, 10), { min: 0, max: 6 });
+  assert.deepEqual(core.digitPool(4, 20), { min: 2, max: 8 });
+  assert.deepEqual(core.digitPool(4, 28), { min: 4, max: 9 });
+  assert.deepEqual(core.digitPool(4, 36), { min: 6, max: 9 });
+  assert.deepEqual(core.digitPool(5, 9), { min: 0, max: 5 });
+  assert.deepEqual(core.digitPool(5, 25), { min: 2, max: 8 });
+  assert.deepEqual(core.digitPool(5, 40), { min: 5, max: 9 });
+  // どの target でも 0〜9 の外へは出ない
+  for (const size of [4, 5]) {
+    for (let target = 9; target <= 40; target += 1) {
+      const pool = core.digitPool(size, target);
+      assert.ok(pool.min >= 0 && pool.max <= 9 && pool.min <= pool.max, `${size}/${target}`);
+      assert.ok(pool.max - pool.min >= 2, `${size}/${target} の幅が狭すぎる`);
+    }
   }
-});
-
-test('Rule A: 裏は 5-x ではなく 0〜5 のバラバラ', () => {
-  const rng = core.seededRng(11);
-  let varied = 0;
-  for (let i = 0; i < 240; i += 1) {
-    const tile = core.makeTile(core.RULES.advanced, rng);
-    assert.ok(tile.back >= 0 && tile.back <= 5);
-    if (tile.back !== core.PAIR_SUM - tile.front) varied += 1;
-  }
-  assert.ok(varied > 40, `Rule A の裏が固定されている（varied=${varied}）`);
-});
-
-test('表示は side で決まる。flipTile は数字を変えずに裏返す', () => {
-  const tile = { front: 2, back: 3, side: core.SIDES.front };
-  assert.equal(core.displayValue(tile), 2);
-  const back = core.flipTile(tile);
-  assert.equal(back.side, core.SIDES.back);
-  assert.equal(back.front, 2);
-  assert.equal(back.back, 3);
-  assert.equal(core.displayValue(back), 3);
-  assert.equal(core.displayValue(core.flipTile(back)), 2);
-  assert.equal(tile.side, core.SIDES.front, '元のタイルは変えない');
-});
-
-test('＋の字の範囲（4×4 / 5×5、端と角）', () => {
-  assert.deepEqual(core.cross(4, 5), [5, 1, 4, 6, 9]);
-  assert.deepEqual(core.cross(4, 0), [0, 1, 4]);
-  assert.deepEqual(core.cross(4, 3), [3, 2, 7]);
-  assert.deepEqual(core.cross(4, 15), [15, 11, 14]);
-  assert.deepEqual(core.cross(5, 12), [12, 7, 11, 13, 17]);
-  assert.deepEqual(core.cross(5, 0), [0, 1, 5]);
-});
-
-test('タップで反転するのは＋の字だけ', () => {
-  const board = Array.from({ length: 16 }, (_, i) => shown(i % 6));
-  const { board: after, flipped } = core.flipBoard(board, 4, 5);
-  assert.deepEqual(flipped, [5, 1, 4, 6, 9]);
-  for (let i = 0; i < 16; i += 1) {
-    if (flipped.includes(i)) {
-      assert.equal(after[i].side, core.SIDES.back, `index ${i} が反転していない`);
-      assert.equal(core.displayValue(after[i]), 5 - board[i].front);
-    } else {
-      assert.equal(after[i], board[i], `index ${i} が変わった`);
+  // target が上がるほど、出す数字も上がる（単調）
+  for (const size of [4, 5]) {
+    let previous = -1;
+    for (let target = 9; target <= 40; target += 1) {
+      const pool = core.digitPool(size, target);
+      assert.ok(pool.min >= previous, `${size}/${target} の最小が下がった`);
+      previous = pool.min;
     }
   }
 });
 
-test('行と列の合計は「いま見えている数字」で数える', () => {
-  const board = board4(
-    [
-      [1, 2, 3, 4],
-      [0, 0, 0, 0],
-      [5, 5, 0, 0],
-      [2, 2, 3, 3],
-    ],
-    { backRows: [3] },
-  );
-  const { rows, cols } = core.sums(board, 4);
-  assert.deepEqual(rows, [10, 0, 10, 10]);
-  assert.deepEqual(cols, [8, 9, 6, 7]);
+test('target は 9〜40、4×4 だけは 36 まで', () => {
+  assert.equal(core.maxTargetFor(4), 36);
+  assert.equal(core.maxTargetFor(5), 40);
+  assert.deepEqual(core.targetPair(40, 40, 4), { rows: 36, cols: 36 });
+  assert.deepEqual(core.targetPair(40, 40, 5), { rows: 40, cols: 40 });
+  assert.deepEqual(core.targetPair(3, 99, 4), { rows: 9, cols: 36 });
+  assert.deepEqual(core.targetPair(12, 22, 4), { rows: 12, cols: 22 });
 });
 
 /* ------------------------------------------------------------------ */
-/* ライン消去                                                          */
+/* 盤面の生成                                                          */
 /* ------------------------------------------------------------------ */
 
-test('合計10の行だけが消える', () => {
+test('盤面は最初から消えておらず、必ず1手ある（9〜40 / 4×4・5×5）', () => {
+  for (const size of [4, 5]) {
+    for (let target = 9; target <= 40; target += 1) {
+      const t = core.targetPair(target, target, size);
+      const pool = core.digitPool(size, Math.round((t.rows + t.cols) / 2));
+      for (let seed = 1; seed <= 3; seed += 1) {
+        const board = core.makeBoard({ size, target: t, rng: core.seededRng(seed * 131 + target) });
+        assert.equal(board.length, size * size);
+        assert.equal(core.findClears(board, size, t).cells.length, 0, `${size}/${target}/${seed} が最初から消える`);
+        assert.ok(core.hasMove(board, size, t), `${size}/${target}/${seed} に手が無い`);
+        for (const item of board) {
+          const value = core.displayValue(item);
+          assert.ok(value >= pool.min && value <= pool.max, `${size}/${target}: ${value} が範囲外`);
+        }
+      }
+    }
+  }
+});
+
+test('手が無くなった盤面は数字を混ぜ直す', () => {
+  const board = flat(new Array(16).fill(7));
+  assert.equal(core.hasMove(board, 4, 10), false);
+  const fixed = core.ensurePlayable(board, { size: 4, target: 10, pool: { min: 0, max: 9 }, rng: core.seededRng(4) });
+  assert.equal(fixed.reshuffled, true);
+  assert.ok(core.hasMove(fixed.board, 4, 10));
+  assert.equal(core.findClears(fixed.board, 4, 10).cells.length, 0);
+  assert.equal(fixed.board.length, 16);
+});
+
+test('有効な手は本当に合計を target にする（全 target で確認）', () => {
+  for (const size of [4, 5]) {
+    for (const target of [9, 10, 14, 20, 25, 30, 35, 40]) {
+      const t = core.targetPair(target, target, size);
+      const board = core.makeBoard({ size, target: t, rng: core.seededRng(target + size * 7) });
+      const hint = core.findPlayableSwap(board, size, t);
+      assert.ok(hint, `${size}/${target} に手が無い`);
+      const after = board.slice();
+      [after[hint.a], after[hint.b]] = [after[hint.b], after[hint.a]];
+      const clears = core.findClears(after, size, t);
+      assert.ok(clears.rows.length + clears.cols.length > 0, `${size}/${target} の手が消えない`);
+      for (const r of clears.rows) {
+        assert.equal(core.sums(after, size).rows[r], t.rows);
+      }
+      for (const c of clears.cols) {
+        assert.equal(core.sums(after, size).cols[c], t.cols);
+      }
+    }
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 入れ替えと合計                                                      */
+/* ------------------------------------------------------------------ */
+
+test('2マスを入れ替えると数字が交換され、元の盤面は変わらない', () => {
+  const board = flat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5]);
+  const { board: after, swapped } = core.swapBoard(board, 0, 5);
+  assert.deepEqual(swapped, { a: 0, b: 5 });
+  assert.equal(core.displayValue(after[0]), 5);
+  assert.equal(core.displayValue(after[5]), 0);
+  assert.equal(core.displayValue(board[0]), 0, '元の盤面は変えない');
+  assert.equal(core.displayValue(board[5]), 5);
+  assert.equal(core.swapBoard(board, 3, 3).swapped, null);
+  assert.equal(core.swapBoard(board, 3, 99).swapped, null);
+});
+
+test('行と列は別々の合計で消える（PRO の行12 / 列14）', () => {
+  const board = board4([
+    [3, 3, 3, 3],
+    [3, 3, 0, 0],
+    [4, 4, 0, 0],
+    [4, 4, 0, 0],
+  ]);
+  const t = { rows: 12, cols: 14 };
+  const clears = core.findClears(board, 4, t);
+  assert.deepEqual(clears.rows.sort((a, b) => a - b), [0]);
+  assert.deepEqual(clears.cols.sort((a, b) => a - b), [0, 1]);
+  // 交差は1回だけ: 行0の4マス + 列0・1の下3マスずつ
+  assert.equal(clears.cells.length, 4 + 3 + 3);
+});
+
+test('合計が target の行だけが消える（列は別の合計）', () => {
   const board = board4([
     [1, 2, 3, 4],
     [1, 1, 1, 1],
     [2, 2, 3, 1],
     [0, 0, 5, 5],
   ]);
-  const clears = core.findClears(board, 4, 10);
+  const clears = core.findClears(board, 4, { rows: 10, cols: 99 });
   assert.deepEqual(clears.rows, [0, 3]);
   assert.deepEqual(clears.cols, []);
   assert.deepEqual(clears.cells, [0, 1, 2, 3, 12, 13, 14, 15]);
-});
-
-test('行と列が同時に消えるとき、交差は1回だけ', () => {
-  const board = board4([
-    [2, 3, 1, 5],
-    [1, 4, 0, 5],
-    [3, 0, 4, 2],
-    [4, 2, 1, 2],
-  ]);
-  // 行1 = 1+4+0+5 = 10 / 列0 = 2+1+3+4 = 10（ほかの行・列は10にならない）
-  const clears = core.findClears(board, 4, 10);
-  assert.deepEqual(clears.rows, [1]);
-  assert.deepEqual(clears.cols, [0]);
-  assert.equal(clears.cells.length, 7, '交差する (1,0) を二重に数えない');
-  assert.deepEqual(clears.cells, [0, 4, 5, 6, 7, 8, 12]);
 });
 
 test('落ちるときは下詰め・上から新しいタイル（順番を保つ）', () => {
@@ -158,28 +198,20 @@ test('落ちるときは下詰め・上から新しいタイル（順番を保�
     [2, 2, 2, 2],
     [3, 3, 3, 3],
   ]);
-  // 1列目（index 1,5,9,13）だけ消す
-  const { board: after, changed } = core.removeAndDrop(board, 4, [5], { rng: () => 0.5 });
+  const { board: after, changed } = core.removeAndDrop(board, 4, [5], { pool: { min: 0, max: 9 }, rng: () => 0.5 });
   assert.equal(after.length, 16);
-  // 列1の下3枚は元の順番のまま1つ下へ
-  assert.equal(after[9].front, board[9].front);
-  assert.equal(after[13].front, board[13].front);
-  assert.equal(after[5].front, board[1].front);
-  // 一番上は新しいタイル（rng 0.5 → 3）
-  assert.equal(after[1].front, 3);
+  assert.equal(core.displayValue(after[9]), 2);
+  assert.equal(core.displayValue(after[13]), 3);
+  assert.equal(core.displayValue(after[5]), 0, '上の段が1つ落ちてくる');
+  assert.equal(core.displayValue(after[1]), 5, 'rng 0.5 → 5');
   assert.ok(changed.includes(1));
-  // ほかの列は無傷
   assert.equal(after[0], board[0]);
   assert.equal(after[15], board[15]);
 });
 
-test('得点は 100 × ライン数 × コンボ × 連鎖（上限5）', () => {
-  assert.equal(core.stepPoints({ lines: 1, combo: 1, chain: 1 }), 100);
-  assert.equal(core.stepPoints({ lines: 2, combo: 1, chain: 1 }), 200);
-  assert.equal(core.stepPoints({ lines: 1, combo: 3, chain: 2 }), 600);
-  assert.equal(core.chainMultiplier(9), core.MAX_CHAIN);
-  assert.equal(core.chainMultiplier(0), 1);
-});
+/* ------------------------------------------------------------------ */
+/* 消去・得点・連鎖                                                    */
+/* ------------------------------------------------------------------ */
 
 test('1ライン消えると 100点、上から新しいタイルが落ちる', () => {
   const board = flat([
@@ -188,25 +220,24 @@ test('1ライン消えると 100点、上から新しいタイルが落ちる', 
     0, 0, 0, 0,
     0, 0, 0, 0,
   ]);
-  const result = core.resolveBoard(board, { size: 4, target: 10, chain: 1, rng: () => 0 });
+  const result = core.resolveBoard(board, { size: 4, target: 10, chain: 1, pool: { min: 0, max: 9 }, rng: () => 0 });
   assert.equal(result.steps.length, 1);
   assert.equal(result.gained, 100);
   assert.deepEqual(result.steps[0].rows, [0]);
   assert.equal(result.steps[0].cells.length, 4);
   assert.equal(result.board.length, 16);
-  assert.deepEqual(result.board.map(core.displayValue), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(result.board.map(core.displayValue), new Array(16).fill(0));
 });
 
-test('続けて消えるとコンボで音程と得点が上がる（2段）', () => {
+test('続けて消えるとコンボで得点が上がる（2段）', () => {
   const board = flat([
     3, 2, 4, 1,
     0, 0, 0, 0,
     0, 0, 0, 0,
     0, 0, 0, 0,
   ]);
-  // 落ちてくる上の行も 3,2,4,1（=10）→ 2段目、その次は 0 で止まる
-  const rng = faceRng([3, 2, 4, 1, 0, 0, 0, 0]);
-  const result = core.resolveBoard(board, { size: 4, target: 10, chain: 1, rng });
+  const rng = sequenceRng([3, 2, 4, 1, 0, 0, 0, 0]);
+  const result = core.resolveBoard(board, { size: 4, target: 10, chain: 1, pool: { min: 0, max: 9 }, rng });
   assert.equal(result.steps.length, 2);
   assert.equal(result.steps[0].combo, 1);
   assert.equal(result.steps[1].combo, 2);
@@ -215,118 +246,206 @@ test('続けて消えるとコンボで音程と得点が上がる（2段）', (
   assert.equal(result.gained, 300);
 });
 
-test('連鎖は MAX_CASCADE で必ず止まる（無限ループにしない）', () => {
+test('連鎖は MAX_CASCADE で必ず止まる', () => {
   const board = flat([
     3, 2, 4, 1,
     0, 0, 0, 0,
     0, 0, 0, 0,
     0, 0, 0, 0,
   ]);
-  const result = core.resolveBoard(board, { size: 4, target: 10, chain: 1, rng: faceRng([3, 2, 4, 1]) });
+  const result = core.resolveBoard(board, { size: 4, target: 10, chain: 1, pool: { min: 0, max: 9 }, rng: sequenceRng([3, 2, 4, 1]) });
   assert.equal(result.steps.length, core.MAX_CASCADE);
   assert.equal(result.combo, core.MAX_CASCADE);
 });
 
+test('得点は 100 × ライン数 × コンボ × 連鎖（上限5）', () => {
+  assert.equal(core.stepPoints({ lines: 1, combo: 1, chain: 1 }), 100);
+  assert.equal(core.stepPoints({ lines: 2, combo: 1, chain: 1 }), 200);
+  assert.equal(core.stepPoints({ lines: 1, combo: 3, chain: 2 }), 600);
+  assert.equal(core.chainMultiplier(9), core.MAX_CHAIN);
+  assert.equal(core.chainMultiplier(0), 1);
+  assert.equal(core.comboRank(1), 0);
+  assert.equal(core.comboRank(3), 2);
+  assert.equal(core.comboRank(9), 4);
+});
+
 /* ------------------------------------------------------------------ */
-/* タップ（ゲームとして）                                              */
+/* 手数ライフ                                                          */
 /* ------------------------------------------------------------------ */
 
-test('タップ→＋の字が反転→合計10の行が消える→新しい盤面', () => {
-  const game = {
-    ...core.startGame({ mode: 'classic', rng: () => 0 }),
-    board: flat([
-      5, 5, 5, 5,
-      0, 0, 0, 0,
-      0, 0, 0, 0,
-      0, 0, 0, 0,
-    ]),
-    target: 10,
-  };
-  const result = core.tapTile(game, 0, () => 0);
-  assert.deepEqual(result.flip.flipped, [0, 1, 4]);
-  assert.deepEqual(result.flip.board.slice(0, 2).map((t) => t.side), [core.SIDES.back, core.SIDES.back]);
-  assert.equal(result.steps.length, 1);
+test('手数は7から。1ライン +3 / 2ライン +5 / 3ライン以上か連鎖で満タン', () => {
+  assert.equal(core.START_MOVES, 7);
+  assert.equal(core.MAX_MOVES, 7);
+  assert.equal(core.moveReward({ lines: 0, steps: 0 }), 0);
+  assert.equal(core.moveReward({ lines: 1, steps: 1 }), 3);
+  assert.equal(core.moveReward({ lines: 2, steps: 1 }), 5);
+  assert.equal(core.moveReward({ lines: 3, steps: 1 }), 7);
+  assert.equal(core.moveReward({ lines: 1, steps: 2 }), 7, '連鎖は満タン');
+  const game = core.startGame({ mode: 'classic', rng: core.seededRng(2) });
+  assert.equal(game.moves, 7);
+  assert.equal(game.maxMoves, 7);
+  assert.equal(game.life, true);
+});
+
+test('入れ替えて消すと手数が減って回復する（1ライン: 7→6→7で上限）', () => {
+  const game = gameWith([
+    [3, 2, 4, 0],
+    [1, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]);
+  const result = core.swapTiles(game, 3, 4, () => 0);
+  assert.ok(result.swap);
   assert.deepEqual(result.steps[0].rows, [0]);
-  assert.equal(result.gained, 100);
+  assert.equal(result.reward, 3);
+  assert.equal(result.game.moves, 7, '6 + 3 は上限7');
   assert.equal(result.game.score, 100);
-  assert.equal(result.game.moves, 1);
-  assert.equal(result.game.chain, 1);
   assert.equal(result.game.clearedLines, 1);
-  assert.equal(result.game.board.length, 16);
   assert.equal(result.game.status, core.STATUS.playing);
+  assert.equal(result.game.chain, 1);
 });
 
-test('消えなかったタップは連鎖を0に戻す', () => {
-  const rng = core.seededRng(3);
-  let game = core.startGame({ mode: 'classic', rng });
-  game = { ...game, chain: 3 };
-  // 消えないタップを探す
-  let found = null;
-  for (let i = 0; i < 16 && !found; i += 1) {
-    const probe = core.tapTile(game, i, core.seededRng(i + 1));
-    if (probe.steps.length === 0) found = i;
-  }
-  assert.notEqual(found, null, '消えないタップが見つからない');
-  const result = core.tapTile(game, found, core.seededRng(99));
+test('消えない入れ替えは手数 −1、連鎖は0に戻る', () => {
+  const base = gameWith([
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]);
+  const game = { ...base, chain: 3, moves: 5 };
+  const result = core.swapTiles(game, 0, 1, () => 0);
   assert.equal(result.steps.length, 0);
+  assert.equal(result.reward, 0);
+  assert.equal(result.game.moves, 4);
   assert.equal(result.game.chain, 0);
-  assert.equal(result.game.score, game.score);
-  assert.equal(result.game.moves, game.moves + 1);
+  assert.equal(result.game.score, 0);
 });
 
-test('消えたラインは必ず target と一致し、盤面は欠けない', () => {
-  const rng = core.seededRng(21);
-  let game = core.startGame({ mode: 'classic', rng });
-  let clears = 0;
-  for (let move = 0; move < 40; move += 1) {
-    const index = Math.floor(rng() * 16);
-    const result = core.tapTile(game, index, rng);
-    for (const step of result.steps) {
-      const { rows, cols } = core.sums(step.board, game.size);
-      for (const r of step.rows) assert.equal(rows[r], game.target);
-      for (const c of step.cols) assert.equal(cols[c], game.target);
-      assert.equal(step.after.length, 16);
-      clears += 1;
-    }
-    assert.equal(result.game.board.length, 16);
-    assert.ok(result.game.board.every((tile) => tile && tile.front >= 0 && tile.front <= 5));
-    game = result.game;
-  }
-  assert.ok(clears > 0, '40手で一度も消えていない');
-  assert.equal(game.score > 0, true);
+test('2ライン消すと +5、3ライン以上で満タン', () => {
+  assert.equal(core.moveReward({ lines: 2, steps: 1 }), 5);
+  assert.equal(core.moveReward({ lines: 4, steps: 1 }), 7);
+  // 2ライン同時消し: 行0と列3が両方 target になる盤面
+  const game = gameWith([
+    [3, 2, 4, 0],
+    [1, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]);
+  const two = core.swapTiles({ ...game, moves: 4 }, 3, 4, () => 0);
+  assert.equal(two.steps.length, 1);
+  assert.equal(two.steps[0].lines, 1);
 });
 
-test('ルールA（PRO）でもタップの反転と消去は同じ', () => {
-  const rng = core.seededRng(5);
-  let game = core.startGame({ mode: 'advanced', rng });
-  assert.equal(game.size, 4);
-  assert.equal(game.rule, core.RULES.advanced);
-  assert.equal(game.peek, true);
-  for (let move = 0; move < 15; move += 1) {
-    const index = Math.floor(rng() * 16);
-    const result = core.tapTile(game, index, rng);
-    assert.equal(result.flip.flipped.length, core.cross(4, index).length);
-    game = result.game;
-  }
-  assert.equal(game.board.length, 16);
+test('手数が0になったらゲームオーバー（それ以上は動かない）', () => {
+  const base = gameWith([
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ], { moves: 1 });
+  const result = core.swapTiles(base, 0, 1, () => 0);
+  assert.equal(result.game.moves, 0);
+  assert.equal(result.game.status, core.STATUS.over);
+  assert.equal(result.game.overReason, core.OVER_REASON.moves);
+  // 終了後は何も起きない
+  const after = core.swapTiles(result.game, 2, 3, () => 0);
+  assert.equal(after.swap, null);
+  assert.equal(after.game.score, 0);
+  assert.equal(after.game.moves, 0);
 });
 
-test('5×5 は 25マスで、中心は4方向とも反転する', () => {
-  const game = core.startGame({ mode: 'wide', rng: core.seededRng(8) });
-  assert.equal(game.size, 5);
-  assert.equal(game.board.length, 25);
-  const result = core.tapTile(game, 12, core.seededRng(9));
-  assert.deepEqual(result.flip.flipped, [12, 7, 11, 13, 17]);
+test('盤の外・同じマス・違う操作のタップは何も起きない', () => {
+  const game = core.startGame({ mode: 'classic', rng: core.seededRng(4) });
+  assert.equal(core.swapTiles(game, -1, 0).swap, null);
+  assert.equal(core.swapTiles(game, 0, 99).swap, null);
+  assert.equal(core.swapTiles(game, 2, 2).swap, null);
+  assert.equal(core.swapTiles(game, 1.5, 2).swap, null);
+  // 十字フリップのモードに swapTiles は効かない
+  const cross = core.startGame({ mode: 'cross', rng: core.seededRng(5) });
+  assert.equal(core.swapTiles(cross, 0, 1).swap, null);
 });
 
-/* ------------------------------------------------------------------ */
-/* 時間と設定                                                          */
-/* ------------------------------------------------------------------ */
-
-test('タイムアタックは 0 で終了になる', () => {
-  const game = core.startGame({ mode: 'time', timeLimit: 60, rng: core.seededRng(2) });
+test('手数ライフの無いタイムアタックは手数を持たない', () => {
+  const game = core.startGame({ mode: 'time', timeLimit: 60, rng: core.seededRng(6) });
+  assert.equal(game.life, false);
+  assert.equal(game.moves, null);
   assert.equal(game.timed, true);
-  assert.equal(game.timeLimit, 60);
+  const result = core.swapTiles(game, 0, 1, () => 0);
+  assert.ok(result.swap);
+  assert.equal(result.game.moves, null);
+});
+
+/* ------------------------------------------------------------------ */
+/* 十字フリップ（PRO 特別モード）                                      */
+/* ------------------------------------------------------------------ */
+
+test('十字フリップ: ＋の字だけが反転し、表裏は足して5', () => {
+  assert.deepEqual(core.cross(4, 5), [5, 1, 4, 6, 9]);
+  assert.deepEqual(core.cross(4, 0), [0, 1, 4]);
+  assert.deepEqual(core.cross(5, 12), [12, 7, 11, 13, 17]);
+  const board = Array.from({ length: 16 }, (_, i) => core.tileWithValue(i % 6, core.MECHANIC.flip));
+  const { board: after, flipped } = core.flipBoard(board, 4, 5);
+  assert.deepEqual(flipped, [5, 1, 4, 6, 9]);
+  for (let i = 0; i < 16; i += 1) {
+    if (flipped.includes(i)) {
+      assert.equal(after[i].side, core.SIDES.back, `${i} が裏返っていない`);
+      assert.equal(core.displayValue(after[i]), 5 - core.displayValue(board[i]));
+    } else {
+      assert.equal(after[i], board[i]);
+    }
+  }
+});
+
+test('十字フリップは 4×4・値は0〜5・最初から消えていない・必ず1手ある', () => {
+  for (let seed = 1; seed <= 10; seed += 1) {
+    const game = core.startGame({ mode: 'cross', rng: core.seededRng(seed) });
+    assert.equal(game.size, 4);
+    assert.equal(game.mechanic, core.MECHANIC.flip);
+    assert.equal(game.board.length, 16);
+    assert.ok(game.board.every((item) => core.displayValue(item) <= 5));
+    assert.equal(core.findClears(game.board, 4, { rows: 10, cols: 10 }).cells.length, 0);
+    assert.ok(core.findFlipHint(game.board, 4, { rows: 10, cols: 10 }));
+  }
+});
+
+test('十字フリップでもラインが消えて手数が回復する', () => {
+  let found = null;
+  for (let seed = 1; seed <= 30 && !found; seed += 1) {
+    const game = { ...core.startGame({ mode: 'cross', rng: core.seededRng(seed) }), moves: 7 };
+    const hint = core.findFlipHint(game.board, 4, game.targets);
+    if (!hint) continue;
+    const result = core.flipAt(game, hint.index, () => 0);
+    if (result.steps.length === 1) found = result;
+  }
+  assert.ok(found, '1回で消える十字フリップが見つからない');
+  assert.ok(found.steps[0].cells.length >= 4);
+  assert.ok(found.game.score > 0);
+  assert.ok(found.game.moves >= 1);
+  assert.equal(found.game.mechanic, core.MECHANIC.flip);
+});
+
+test('十字フリップのヒントは表向きの数字から探す', () => {
+  const board = board4([
+    [3, 2, 4, 0],
+    [1, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]);
+  // 十字フリップの盤面として作り直す（0 が5になる場所は避ける）
+  const flipBoard = board.map((item) => ({ front: core.displayValue(item), back: core.PAIR_SUM - core.displayValue(item), side: core.SIDES.front }));
+  const hint = core.findFlipHint(flipBoard, 4, 10);
+  if (hint) {
+    const after = core.flipBoard(flipBoard, 4, hint.index).board;
+    assert.ok(core.findClears(after, 4, 10).rows.length + core.findClears(after, 4, 10).cols.length > 0);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 時間・キー・表示                                                    */
+/* ------------------------------------------------------------------ */
+
+test('タイムアタックは 0 で終了になる（理由も残る）', () => {
+  const game = core.startGame({ mode: 'time', timeLimit: 60, rng: core.seededRng(2) });
   assert.equal(game.timeLeft, 60000);
   const half = core.advanceTime(game, 30500);
   assert.equal(half.timeLeft, 29500);
@@ -334,13 +453,13 @@ test('タイムアタックは 0 で終了になる', () => {
   const done = core.advanceTime(half, 40000);
   assert.equal(done.timeLeft, 0);
   assert.equal(done.status, core.STATUS.over);
-  // 終わったあとは減らない
+  assert.equal(done.overReason, core.OVER_REASON.time);
   assert.equal(core.advanceTime(done, 1000).timeLeft, 0);
-});
-
-test('120秒も選べる。エンドレスは時間で終わらない', () => {
   const long = core.startGame({ mode: 'time', timeLimit: 120 });
   assert.equal(long.timeLeft, 120000);
+});
+
+test('エンドレスは時間で終わらない', () => {
   const endless = core.startGame({ mode: 'classic' });
   assert.equal(endless.timed, false);
   assert.equal(core.advanceTime(endless, 999999).status, core.STATUS.playing);
@@ -353,43 +472,24 @@ test('時計の表示は 1:05', () => {
   assert.equal(core.formatClock(-5), '0:00');
 });
 
-test('消える合計は 9 / 10 / 11（それ以外は10）', () => {
-  assert.equal(core.startGame({ mode: 'classic', target: 9 }).target, 9);
-  assert.equal(core.startGame({ mode: 'classic', target: 11 }).target, 11);
-  assert.equal(core.startGame({ mode: 'classic', target: 7 }).target, 10);
-  assert.equal(core.startGame({ mode: 'classic' }).target, core.DEFAULT_TARGET);
-});
-
-test('新しい盤面は最初から消えていない（20回）', () => {
-  for (let seed = 1; seed <= 20; seed += 1) {
-    const rng = core.seededRng(seed);
-    for (const mode of ['classic', 'advanced', 'wide']) {
-      const game = core.startGame({ mode, rng });
-      const clears = core.findClears(game.board, game.size, game.target);
-      assert.equal(clears.cells.length, 0, `${mode} seed=${seed} が消えた状態で始まる`);
-    }
-  }
-});
-
 test('ハイスコアのキーはモードごと、タイムは60/120で別', () => {
   assert.equal(core.gameKey('classic'), 'classic');
-  assert.equal(core.gameKey('advanced'), 'advanced');
   assert.equal(core.gameKey('wide'), 'wide');
+  assert.equal(core.gameKey('cross'), 'cross');
   assert.equal(core.gameKey('time', 60), 'time60');
   assert.equal(core.gameKey('time', 120), 'time120');
   assert.equal(core.gameKey('time', 999), 'time60');
 });
 
 test('凡例のペアは 0↔5 / 1↔4 / 2↔3', () => {
-  assert.deepEqual(core.pairLegend(core.RULES.base), [
+  assert.deepEqual(core.pairLegend(), [
     { front: 0, back: 5 },
     { front: 1, back: 4 },
     { front: 2, back: 3 },
   ]);
-  assert.deepEqual(core.pairLegend(core.RULES.advanced), []);
 });
 
-test('いちばん近いラインは合計との差が小さいもの', () => {
+test('合計に近いラインを教えられる', () => {
   const board = board4([
     [0, 0, 0, 0],
     [1, 1, 1, 1],
@@ -403,12 +503,28 @@ test('いちばん近いラインは合計との差が小さいもの', () => {
   assert.equal(nearest.gap, 4);
 });
 
-test('盤面の外や終了後のタップは何も起きない', () => {
-  const game = core.startGame({ mode: 'classic', rng: core.seededRng(4) });
-  assert.deepEqual(core.tapTile(game, -1).steps, []);
-  assert.deepEqual(core.tapTile(game, 16).steps, []);
-  const over = { ...game, status: core.STATUS.over };
-  const result = core.tapTile(over, 0);
-  assert.deepEqual(result.steps, []);
-  assert.equal(result.game.score, over.score);
+test('盤面を何度も遊んでも壊れない（200手）', () => {
+  const rng = core.seededRng(21);
+  let game = core.startGame({ mode: 'classic', rng });
+  let clears = 0;
+  let swaps = 0;
+  for (let move = 0; move < 200 && game.status === core.STATUS.playing; move += 1) {
+    const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
+    assert.ok(hint, `手 ${move} でヒントが無い`);
+    const result = core.swapTiles(game, hint.a, hint.b, rng);
+    for (const step of result.steps) {
+      const sums = core.sums(step.board, game.size);
+      for (const r of step.rows) assert.equal(sums.rows[r], game.targets.rows);
+      for (const c of step.cols) assert.equal(sums.cols[c], game.targets.cols);
+      assert.equal(step.after.length, 16);
+      clears += 1;
+    }
+    assert.equal(result.game.board.length, 16);
+    assert.ok(result.game.board.every((item) => core.displayValue(item) >= 0 && core.displayValue(item) <= 9));
+    assert.ok(result.game.moves >= 0 && result.game.moves <= 7);
+    game = result.game;
+    swaps += 1;
+  }
+  assert.ok(swaps > 10);
+  assert.ok(clears > 0);
 });

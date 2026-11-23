@@ -15,7 +15,7 @@ FLIP 10（以下「本アプリ」）は、T-maks Games が提供する1人用�
 
 ### 端末の中に残るもの
 
-スコア、ベスト記録、設定（音・BGM・言語・消える合計）は、この端末の中（アプリの保存領域）だけに保存されます。外部へ送信しません。アプリを消すと一緒に消えます。
+スコア、ベスト記録、設定（音・BGM・ヒント・バイブ・文字サイズ・言語・消える合計）は、この端末の中（アプリの保存領域）だけに保存されます。外部へ送信しません。アプリを消すと一緒に消えます。
 
 ### 通信と広告
 
@@ -41,7 +41,7 @@ We do not collect your name, email address, phone number, location, contacts, ph
 
 ### What stays on your device
 
-Scores, best records and settings (sound, music, language, line total) are stored only on this device, inside the App's own storage. They are never sent anywhere and are removed with the App.
+Scores, best records and settings (sound, music, hint, vibration, text size, language, line totals) are stored only on this device, inside the App's own storage. They are never sent anywhere and are removed with the App.
 
 ### Network and advertising
 

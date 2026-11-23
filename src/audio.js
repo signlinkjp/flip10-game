@@ -63,24 +63,36 @@ export function createAudioEngine({
   let bgmTimer = null;
   let bgmStep = 0;
   let bgmNextAt = 0;
+  let paused = false;
 
   const baseGain = 0.22 * volume;
 
   function nativeAudioPlugin() {
     const plugins = capacitorLike && capacitorLike.Plugins;
     const plugin = plugins && plugins[NATIVE_PLUGIN];
-    if (!plugin || typeof plugin.activate !== 'function') return null;
-    return plugin;
+    return plugin ?? null;
   }
 
   function activateNative() {
     const plugin = nativeAudioPlugin();
-    if (!plugin) return;
+    if (!plugin || typeof plugin.activate !== 'function') return;
     try {
       const answer = plugin.activate();
       if (answer && typeof answer.catch === 'function') answer.catch(() => {});
     } catch {
       /* 音が出なくてもゲームは続く */
+    }
+  }
+
+  /** ネイティブ側の AudioSession を止める（ホーム画面・ロック中に BGM を残さない） */
+  function pauseNative() {
+    const plugin = nativeAudioPlugin();
+    if (!plugin || typeof plugin.pause !== 'function') return;
+    try {
+      const answer = plugin.pause();
+      if (answer && typeof answer.catch === 'function') answer.catch(() => {});
+    } catch {
+      /* 止められなくても JS 側で suspend する */
     }
   }
 
@@ -208,17 +220,33 @@ export function createAudioEngine({
     tone(210, { type: 'sine', start: 0.02, attack: 0.005, decay: 0.12, peak: 0.1 });
   }
 
-  /** 消えたラインのチャイム。combo が上がるほど音程も上がる */
+  /** 消えたラインのチャイム。combo が上がるほど音程も高く、和音も厚くなる */
   function clear({ combo = 1, lines = 1 } = {}) {
     if (!ctx) return;
     const steps = lines >= 5 ? COMBO_STEPS_5 : lines >= 3 ? COMBO_STEPS_3 : COMBO_STEPS;
     const index = Math.min(steps.length - 1, Math.max(0, combo - 1));
     const root = steps[index];
-    // 金色: 明るいサイン＋オクターブ上を少し遅れて
-    tone(root, { type: 'sine', attack: 0.004, decay: 0.5, peak: 0.42 });
-    tone(root * 1.5, { type: 'sine', start: 0.045, attack: 0.004, decay: 0.42, peak: 0.2 });
-    tone(root * 2, { type: 'triangle', start: 0.09, attack: 0.004, decay: 0.32, peak: 0.12 });
-    click({ peak: 0.12, freq: 6400, decay: 0.09 });
+    const rank = Math.min(5, Math.max(1, combo));
+    // 1段目は2音、コンボが重なるほど三和音 → 五和音 → オクターブ上まで厚く
+    const ratios = rank >= 4 ? [1, 1.25, 1.5, 2, 2.5, 3] : rank === 3 ? [1, 1.25, 1.5, 2] : rank === 2 ? [1, 1.5, 2] : [1, 1.5];
+    ratios.forEach((ratio, i) => {
+      tone(root * ratio, {
+        type: i === 0 ? 'sine' : 'triangle',
+        start: i * 0.028,
+        attack: 0.004,
+        decay: Math.max(0.16, 0.52 - i * 0.045),
+        peak: Math.max(0.06, 0.4 / (1 + i * 0.55)),
+      });
+    });
+    // 低音の「ドン」でコンボの重さを出す
+    if (rank >= 2) tone(root / 4, { type: 'sine', attack: 0.006, decay: 0.3, peak: 0.16 });
+    // コンボ3以上はキラキラを足す
+    if (rank >= 3) {
+      for (let i = 0; i < rank; i += 1) {
+        tone(root * (3 + i * 0.5), { type: 'sine', start: 0.12 + i * 0.05, attack: 0.003, decay: 0.22, peak: 0.05 });
+      }
+      click({ peak: 0.1, freq: 7200, decay: 0.12 });
+    }
   }
 
   function drop() {
@@ -267,7 +295,7 @@ export function createAudioEngine({
   }
 
   function pumpBgm() {
-    if (!ctx || !bgmWanted) return;
+    if (!ctx || !bgmWanted || paused) return;
     while (bgmNextAt < ctx.currentTime + 1.2) scheduleBgmBar(bgmNextAt);
     bgmTimer = setTimeout(pumpBgm, 800);
   }
@@ -275,6 +303,7 @@ export function createAudioEngine({
   function startBgm() {
     if (!ctx) return;
     bgmWanted = true;
+    if (paused) return;
     if (musicGain) {
       const now = ctx.currentTime;
       musicGain.gain.cancelScheduledValues(now);
@@ -300,6 +329,71 @@ export function createAudioEngine({
   }
 
   /* ---------------- 外から見えるもの ---------------- */
+
+  /**
+   * 画面を離れるとき（ホーム画面・別アプリ・ロック）に音を完全に止める。
+   * BGM の予約を捨て、AudioContext を suspend し、ネイティブの AudioSession も下げる。
+   * `bgmWanted` は残すので、戻ってきたとき設定が ON なら同じように鳴り出す。
+   */
+  function pause() {
+    paused = true;
+    if (bgmTimer) {
+      clearTimeout(bgmTimer);
+      bgmTimer = null;
+    }
+    if (ctx && musicGain) {
+      const now = ctx.currentTime;
+      musicGain.gain.cancelScheduledValues(now);
+      musicGain.gain.setValueAtTime(musicGain.gain.value, now);
+      musicGain.gain.linearRampToValueAtTime(0, now + 0.05);
+    }
+    if (ctx && ctx.state === 'running') {
+      const suspended = ctx.suspend();
+      if (suspended && typeof suspended.catch === 'function') suspended.catch(() => {});
+    }
+    pauseNative();
+  }
+
+  /** 画面に戻ってきたとき。BGM が ON なら続きから鳴らす */
+  function reviveAudio() {
+    paused = false;
+    applySession(isMuted ? QUIET_SESSION_TYPE : AUDIO_SESSION_TYPE);
+    activateNative();
+    if (ctx && ctx.state === 'suspended') {
+      const resumed = ctx.resume();
+      if (resumed && typeof resumed.catch === 'function') resumed.catch(() => {});
+    }
+    if (bgmWanted) {
+      bgmNextAt = ctx ? Math.max(bgmNextAt, ctx.currentTime + 0.1) : bgmNextAt;
+      if (!bgmTimer) pumpBgm();
+    }
+  }
+
+  function resume() {
+    if (!paused) {
+      reviveAudio();
+      return;
+    }
+    paused = false;
+    applySession(isMuted ? QUIET_SESSION_TYPE : AUDIO_SESSION_TYPE);
+    activateNative();
+    const context = ensureContext();
+    if (context && context.state === 'suspended') {
+      const resumed = context.resume();
+      if (resumed && typeof resumed.catch === 'function') resumed.catch(() => {});
+    }
+    if (master) master.gain.value = isMuted ? 0 : baseGain;
+    if (context && bgmWanted) {
+      if (musicGain) {
+        const now = context.currentTime;
+        musicGain.gain.cancelScheduledValues(now);
+        musicGain.gain.setValueAtTime(0, now);
+        musicGain.gain.linearRampToValueAtTime(1, now + 0.8);
+      }
+      bgmNextAt = Math.max(bgmNextAt, context.currentTime + 0.2);
+      if (!bgmTimer) pumpBgm();
+    }
+  }
 
   return {
     /** 最初のタップで呼ぶ。何度呼んでも安全 */
@@ -342,17 +436,13 @@ export function createAudioEngine({
       else stopBgm();
     },
     /** アプリが戻ってきたとき（電話・Siri のあと）に起こし直す */
-    revive() {
-      applySession(AUDIO_SESSION_TYPE);
-      activateNative();
-      if (ctx && ctx.state === 'suspended') {
-        const resumed = ctx.resume();
-        if (resumed && typeof resumed.catch === 'function') resumed.catch(() => {});
-      }
-      if (bgmWanted) {
-        bgmNextAt = ctx ? Math.max(bgmNextAt, ctx.currentTime + 0.1) : bgmNextAt;
-        if (!bgmTimer) pumpBgm();
-      }
+    revive: reviveAudio,
+    /** 画面を離れるとき（ホーム画面・ロック）に完全に止める */
+    pause,
+    /** 画面に戻ったとき。BGM が ON なら続きから */
+    resume,
+    get paused() {
+      return paused;
     },
     get unlocked() {
       return Boolean(ctx);

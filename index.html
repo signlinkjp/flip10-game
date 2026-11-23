@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-text="normal">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-<meta name="theme-color" content="#070b1c" />
+<meta name="theme-color" content="#eef6ff" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="description" content="FLIP 10 — flip the numbers, sum to 10, clear the line. A one-player puzzle." />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="app-build" content="Build 2" />
+<meta name="description" content="FLIP 10 — swap two tiles, sum to 10, clear the line. A one-player puzzle." />
 <link rel="icon" href="assets/flip10-appicon-1024.png" />
 <link rel="apple-touch-icon" href="assets/flip10-appicon-1024.png" />
 <title>FLIP 10</title>
@@ -27,14 +28,17 @@
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.8 12.6 5 5L19.4 7" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.4 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.9l6.1-.9Z" fill="currentColor"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 17.4h6M10 20.4h4M8.2 13.6a5.2 5.2 0 1 1 7.6 0c-.8.8-1.2 1.5-1.2 2.4h-5.2c0-.9-.4-1.6-1.2-2.4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h12l-3-3M20 16H8l3 3" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="m12 3 3.2 3.4-2.1.3v4.6h4.6l.3-2.1L21.4 12l-3.4 3.2-.3-2.1h-4.6v4.6l2.1.3L12 21.4 8.8 18l2.1-.3v-4.6H6.3l-.3 2.1L2.6 12 6 8.8l.3 2.1h4.6V6.7L8.8 6.4Z" fill="currentColor"/></symbol>
   </defs>
 </svg>
 
 <div class="app" id="app">
   <div class="ambient" aria-hidden="true">
-    <i class="ambient__glow ambient__glow--blue"></i>
-    <i class="ambient__glow ambient__glow--pink"></i>
-    <i class="ambient__glow ambient__glow--gold"></i>
+    <i class="ambient__glow ambient__glow--sky"></i>
+    <i class="ambient__glow ambient__glow--mint"></i>
+    <i class="ambient__glow ambient__glow--sun"></i>
     <i class="ambient__grid"></i>
   </div>
 
@@ -48,7 +52,7 @@
         </span>
         <span class="brand__text">
           <span class="brand__name">FLIP 10</span>
-          <span class="brand__sub">SUM TO 10</span>
+          <span class="brand__sub">SWAP &amp; SUM</span>
         </span>
       </div>
       <div class="topbar__actions">
@@ -64,7 +68,7 @@
     <div class="hero">
       <div class="hero__demo" id="hero-demo" aria-hidden="true"></div>
       <h1 class="hero__logo">FLIP <span>10</span></h1>
-      <p class="hero__tagline" data-i18n="app.tagline">数字をひっくり返して、合計10で消す</p>
+      <p class="hero__tagline" data-i18n="app.tagline">2マスを入れ替えて、合計10で消す</p>
 
       <button class="btn-play" id="btn-play" type="button">
         <span class="btn-play__label" data-i18n="home.play">あそぶ</span>
@@ -78,7 +82,7 @@
       </div>
     </div>
 
-    <div class="legend" id="legend-home" aria-hidden="true"></div>
+    <div class="legend legend--home" id="legend-home" aria-hidden="true"></div>
 
     <div class="modes" id="mode-list"></div>
 
@@ -105,28 +109,49 @@
         <strong id="hud-score">0</strong>
       </div>
       <div class="hud__stats">
-        <span class="stat"><span class="stat__key" data-i18n="hud.target">合計</span><b class="stat__val" id="hud-target">10</b></span>
         <span class="stat"><span class="stat__key" data-i18n="hud.best">ベスト</span><b class="stat__val" id="hud-best">0</b></span>
+        <span class="stat stat--moves" id="hud-moves-wrap"><span class="stat__key" data-i18n="hud.moves">手数</span><b class="stat__val" id="hud-moves">7</b></span>
         <span class="stat stat--time" id="hud-time-wrap" hidden><span class="stat__key" data-i18n="hud.time">のこり</span><b class="stat__val" id="hud-time">1:00</b></span>
+      </div>
+      <div class="hud__tools">
+        <button class="icon-btn icon-btn--hint" id="btn-hint" type="button" data-i18n-aria="game.hint" aria-label="ヒント">
+          <svg><use href="#i-bulb"></use></svg>
+        </button>
+        <button class="icon-btn" id="btn-settings-play" type="button" data-i18n-aria="game.settings" aria-label="設定">
+          <svg><use href="#i-gear"></use></svg>
+        </button>
       </div>
     </header>
 
+    <div class="movesbar" id="movesbar" aria-hidden="true"><span id="moves-pips"></span></div>
+
     <div class="board-area">
-      <div class="board" id="board" role="group" aria-label="FLIP 10 board"></div>
-      <div class="board__fx" id="fx" aria-hidden="true"></div>
-      <div class="combo" id="combo" role="status" aria-live="polite"></div>
-      <div class="timerbar" id="timerbar" hidden><i id="timerbar-fill"></i></div>
+      <div class="board-wrap" id="board-wrap">
+        <div class="board" id="board" role="group" aria-label="FLIP 10 board"></div>
+        <div class="sums sums--rows" id="sums-rows" aria-hidden="true"></div>
+        <div class="sums sums--cols" id="sums-cols" aria-hidden="true"></div>
+        <div class="board__fx" id="fx" aria-hidden="true"></div>
+        <div class="timerbar" id="timerbar" hidden><i id="timerbar-fill"></i></div>
+      </div>
+      <div class="targetbar" id="targetbar">
+        <span class="targetbar__key" data-i18n="hud.target">合計</span>
+        <b id="target-text">行 10 / 列 10</b>
+      </div>
+      <div class="playlegend" id="play-legend" aria-hidden="true" hidden></div>
+      <div class="combo" id="combo" role="status" aria-live="polite">
+        <b id="combo-word"></b>
+        <span id="combo-points"></span>
+      </div>
     </div>
 
-    <div class="playlegend" id="play-legend" aria-hidden="true"></div>
-
     <footer class="playfoot">
+      <button class="pill" id="btn-hint-foot" type="button">
+        <svg><use href="#i-bulb"></use></svg>
+        <span data-i18n="game.hint">ヒント</span>
+      </button>
       <button class="pill" id="btn-restart" type="button">
         <svg><use href="#i-restart"></use></svg>
         <span data-i18n="game.restart">やりなおす</span>
-      </button>
-      <button class="pill pill--icon" id="btn-sound-play" type="button" data-i18n-aria="settings.sound" aria-label="効果音">
-        <svg><use href="#i-sound-on"></use></svg>
       </button>
       <button class="pill" id="btn-home" type="button">
         <svg><use href="#i-home"></use></svg>
@@ -144,7 +169,7 @@
       <header class="sheet__head">
         <div>
           <h2 id="howto-title" data-i18n="howto.title">あそびかた</h2>
-          <p data-i18n="howto.sub">3秒でわかる、合計10で消えるパズル</p>
+          <p data-i18n="howto.sub">2マス入れ替えて、合計10で消すパズル</p>
         </div>
         <button class="icon-btn icon-btn--ghost" type="button" data-close-sheet data-i18n-aria="common.close" aria-label="閉じる">
           <svg><use href="#i-close"></use></svg>
@@ -153,56 +178,66 @@
       <div class="sheet__body howto">
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">1</span><span data-i18n="howto.1.t">タップで＋の字が反転</span></h3>
+            <h3><span class="howto__num">1</span><span data-i18n="howto.1.t">2マスをタップで入れ替え</span></h3>
             <p data-i18n="howto.1.b"></p>
           </div>
-          <div class="diag diag--cross" aria-hidden="true">
-            <i></i><i class="on">+</i><i></i>
-            <i class="on">+</i><i class="on is-center">+</i><i class="on">+</i>
-            <i></i><i class="on">+</i><i></i>
+          <div class="diag diag--swap" aria-hidden="true">
+            <b class="diag__tile is-picked">3</b>
+            <i class="diag__arrow"><svg><use href="#i-swap"></use></svg></i>
+            <b class="diag__tile">7</b>
           </div>
         </article>
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">2</span><span data-i18n="howto.2.t">青が表・ピンクが裏</span></h3>
+            <h3><span class="howto__num">2</span><span data-i18n="howto.2.t">合計は右と下にいつでも表示</span></h3>
             <p data-i18n="howto.2.b"></p>
           </div>
-          <div class="diag diag--pairs" aria-hidden="true">
-            <span class="pair"><b class="pair__tile pair__tile--front">0</b><i>↔</i><b class="pair__tile pair__tile--back">5</b></span>
-            <span class="pair"><b class="pair__tile pair__tile--front">1</b><i>↔</i><b class="pair__tile pair__tile--back">4</b></span>
-            <span class="pair"><b class="pair__tile pair__tile--front">2</b><i>↔</i><b class="pair__tile pair__tile--back">3</b></span>
+          <div class="diag diag--sums" aria-hidden="true">
+            <div class="diag__grid">
+              <b>2</b><b>4</b><b>1</b><b>3</b>
+            </div>
+            <span class="diag__sum diag__sum--row">10</span>
+            <span class="diag__sum diag__sum--col">12</span>
           </div>
         </article>
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">3</span><span data-i18n="howto.3.t">行か列の合計が10で消える</span></h3>
+            <h3><span class="howto__num">3</span><span data-i18n="howto.3.t">合計が10でラインが消える</span></h3>
             <p data-i18n="howto.3.b"></p>
           </div>
           <div class="diag diag--line" aria-hidden="true">
-            <b class="pair__tile pair__tile--front">3</b>
-            <b class="pair__tile pair__tile--back">2</b>
-            <b class="pair__tile pair__tile--front">4</b>
-            <b class="pair__tile pair__tile--back">1</b>
-            <i>=</i>
-            <b class="diag__total">10</b>
+            <span class="diag__row"><b class="diag__tile">3</b><b class="diag__tile">2</b><b class="diag__tile">4</b><b class="diag__tile">1</b></span>
+            <b class="diag__total">= 10</b>
           </div>
         </article>
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">4</span><span data-i18n="howto.4.t">PROは右上の数字を見る</span></h3>
+            <h3><span class="howto__num">4</span><span data-i18n="howto.4.t">手数ライフ：消すと回復</span></h3>
             <p data-i18n="howto.4.b"></p>
           </div>
-          <div class="diag diag--peek" aria-hidden="true">
-            <b class="peek-tile"><span class="peek-tile__corner">5</span>2</b>
-            <span class="diag__note">RULE A</span>
+          <div class="diag diag--moves" aria-hidden="true">
+            <span class="pips"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <b>+3</b>
+          </div>
+        </article>
+
+        <article class="howto__step">
+          <div class="howto__text">
+            <h3><span class="howto__num">5</span><span data-i18n="howto.5.t">PRO：十字フリップと合計9〜40</span></h3>
+            <p data-i18n="howto.5.b"></p>
+          </div>
+          <div class="diag diag--cross" aria-hidden="true">
+            <i></i><i class="on is-back">5</i><i></i>
+            <i class="on">1</i><i class="on is-center">4</i><i class="on">2</i>
+            <i></i><i class="on is-back">3</i><i></i>
           </div>
         </article>
 
         <p class="howto__tip">
-          <svg><use href="#i-star"></use></svg>
+          <svg><use href="#i-bulb"></use></svg>
           <span data-i18n="howto.tip"></span>
         </p>
         <div class="howto__legend" id="legend-howto"></div>
@@ -228,24 +263,50 @@
           <span data-i18n="settings.bgm">BGM</span>
           <button class="switch" id="set-bgm" type="button" role="switch" aria-checked="false"><i></i><b>OFF</b></button>
         </div>
+        <div class="set-row">
+          <span data-i18n="settings.haptic">バイブ（ふるえ）</span>
+          <button class="switch" id="set-haptic" type="button" role="switch" aria-checked="true"><i></i><b>ON</b></button>
+        </div>
+        <div class="set-row">
+          <span data-i18n="settings.hint">ヒント</span>
+          <button class="switch" id="set-hint" type="button" role="switch" aria-checked="true"><i></i><b>ON</b></button>
+        </div>
+        <div class="set-row set-row--stack">
+          <span data-i18n="settings.textSize">文字サイズ</span>
+          <div class="seg seg--size" id="set-text-size" role="group">
+            <button type="button" data-size="normal" data-i18n="settings.textSize.normal">標準</button>
+            <button type="button" data-size="large" data-i18n="settings.textSize.large">大きめ</button>
+            <button type="button" data-size="xl" data-i18n="settings.textSize.xl">特大</button>
+          </div>
+        </div>
+        <div class="set-row set-row--stack" id="set-target">
+          <span><span data-i18n="settings.target">消える合計（PRO）</span> <b class="tag-pro">PRO</b></span>
+          <div class="steppers">
+            <div class="stepper">
+              <span class="stepper__key" data-i18n="settings.targetRow">行</span>
+              <button type="button" data-axis="row" data-step="-1" aria-label="−">−</button>
+              <b id="set-row-target">10</b>
+              <button type="button" data-axis="row" data-step="1" aria-label="+">+</button>
+            </div>
+            <div class="stepper">
+              <span class="stepper__key" data-i18n="settings.targetCol">列</span>
+              <button type="button" data-axis="col" data-step="-1" aria-label="−">−</button>
+              <b id="set-col-target">10</b>
+              <button type="button" data-axis="col" data-step="1" aria-label="+">+</button>
+            </div>
+          </div>
+          <small data-i18n="settings.targetNote">PROの設定です。行と列を別々に9〜40で選べます。</small>
+          <small class="set-note" data-i18n="settings.targetCap">4×4の盤面は最大36（9×4）です。</small>
+        </div>
         <button class="set-row set-row--link" id="set-language" type="button">
           <span data-i18n="settings.language">言語</span>
           <span class="set-row__value"><b id="set-language-label">日本語</b> ›</span>
         </button>
-        <div class="set-row set-row--stack">
-          <span data-i18n="settings.target">消える合計</span>
-          <div class="seg" id="set-target" role="group">
-            <button type="button" data-target="9">9</button>
-            <button type="button" data-target="10">10</button>
-            <button type="button" data-target="11">11</button>
-          </div>
-          <small data-i18n="settings.targetNote">次のゲームから適用されます。</small>
-        </div>
         <div class="rules">
           <h3 data-i18n="settings.rules">ルール</h3>
-          <p data-i18n="rules.base">基本: 表と裏は足して5</p>
-          <p data-i18n="rules.advanced">上級: 裏は0〜5のバラバラ。右上に裏の数字</p>
+          <p data-i18n="rules.swap">1手で好きな2マスを入れ替え（手数 −1）</p>
           <p id="rules-target"></p>
+          <p data-i18n="rules.moves">消すと手数回復: 1ライン +3 / 2ライン +5 / 3ライン以上か連鎖で満タン</p>
         </div>
         <button class="set-row set-row--link" id="set-privacy" type="button">
           <span data-i18n="settings.privacy">プライバシーポリシー</span>
@@ -307,6 +368,7 @@
           <li><svg><use href="#i-check"></use></svg><span data-i18n="pro.f2"></span></li>
           <li><svg><use href="#i-check"></use></svg><span data-i18n="pro.f3"></span></li>
           <li><svg><use href="#i-check"></use></svg><span data-i18n="pro.f4"></span></li>
+          <li><svg><use href="#i-check"></use></svg><span data-i18n="pro.f5"></span></li>
         </ul>
         <button class="btn-pro" id="btn-buy" type="button"><span id="buy-label">¥300 で解放</span></button>
         <button class="btn-ghost" id="btn-restore" type="button" data-i18n="pro.restore">購入を復元</button>
@@ -326,7 +388,7 @@
     <section class="sheet sheet--result" id="sheet-result" data-sheet="result" hidden role="dialog" aria-modal="true" aria-labelledby="result-title">
       <header class="sheet__head sheet__head--center">
         <div>
-          <h2 id="result-title" data-i18n="result.timeup">タイムアップ！</h2>
+          <h2 id="result-title">RESULT</h2>
         </div>
       </header>
       <div class="sheet__body result">

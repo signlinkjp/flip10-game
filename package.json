@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "FLIP 10 — 数字をひっくり返して合計10で消す1人用パズル（Capacitor iOS / Build 1）",
+  "description": "FLIP 10 — 2マス入れ替えて合計10で消す1人用パズル（Capacitor iOS / Build 2）",
   "license": "UNLICENSED",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/core.test.js test/build1.test.js",
+    "test": "node --test --test-concurrency=1 test/core.test.js test/build2.test.js",
     "serve": "node tools/serve.mjs",
-    "shots": "node tools/shots.mjs",
+    "shots": "node tools/shots-b2.mjs",
     "www": "node tools/make-www.mjs",
     "ios:sync": "cap sync ios"
   },
@@ -21,5 +21,6 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.6.2"
-  }
+  },
+  "build": 2
 }

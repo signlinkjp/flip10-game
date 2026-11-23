@@ -6,17 +6,25 @@
  * 落ちないように、その場限りの Map に切り替える。
  */
 
-import { DEFAULT_TARGET, TARGETS } from './core.js';
+import { DEFAULT_TARGET, MIN_TARGET, MAX_TARGET, maxTargetFor, FREE_SIZE } from './core.js';
 import { DEFAULT_LOCALE, detectLocale, isLocale } from './i18n.js';
 
 export const SETTINGS_KEY = 'flip10.settings.v1';
 export const BEST_KEY = 'flip10.best.v1';
 
+/** 文字サイズの3段階 */
+export const TEXT_SIZES = Object.freeze(['normal', 'large', 'xl']);
+
 export const DEFAULT_SETTINGS = Object.freeze({
   sound: true,
   bgm: false,
+  hint: true,
+  /** iOS のバイブ（ふるえ）。既定 ON */
+  haptic: true,
+  textSize: 'normal',
   locale: null,
-  target: DEFAULT_TARGET,
+  rowTarget: DEFAULT_TARGET,
+  colTarget: DEFAULT_TARGET,
 });
 
 function memoryStore() {
@@ -61,14 +69,27 @@ function writeJson(store, key, value) {
   }
 }
 
+/** 合計は 9〜40（4×4 の上限は 36）に丸める */
+export function normalizeTarget(value, fallback = DEFAULT_TARGET) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(MAX_TARGET, Math.max(MIN_TARGET, number));
+}
+
 /** 設定を正規化（壊れた値・古い値でも遊べる形にする） */
 export function normalizeSettings(raw = {}) {
   const source = raw && typeof raw === 'object' ? raw : {};
+  const legacy = Number(source.target);
+  const fallback = Number.isFinite(legacy) ? normalizeTarget(legacy) : DEFAULT_TARGET;
   return {
     sound: typeof source.sound === 'boolean' ? source.sound : DEFAULT_SETTINGS.sound,
     bgm: typeof source.bgm === 'boolean' ? source.bgm : DEFAULT_SETTINGS.bgm,
+    hint: typeof source.hint === 'boolean' ? source.hint : DEFAULT_SETTINGS.hint,
+    haptic: typeof source.haptic === 'boolean' ? source.haptic : DEFAULT_SETTINGS.haptic,
+    textSize: TEXT_SIZES.includes(source.textSize) ? source.textSize : DEFAULT_SETTINGS.textSize,
     locale: isLocale(source.locale) ? source.locale : null,
-    target: TARGETS.includes(source.target) ? source.target : DEFAULT_SETTINGS.target,
+    rowTarget: normalizeTarget(source.rowTarget, fallback),
+    colTarget: normalizeTarget(source.colTarget, fallback),
   };
 }
 
@@ -84,6 +105,15 @@ export function saveSettings(settings, store = createStore()) {
 
 export function updateSettings(patch, store = createStore()) {
   return saveSettings({ ...loadSettings(store), ...(patch || {}) }, store);
+}
+
+/** その盤面サイズで実際に使う合計（4×4 は最大36） */
+export function targetsFor(settings, size = FREE_SIZE) {
+  const max = maxTargetFor(size);
+  return {
+    rows: Math.min(max, normalizeTarget(settings.rowTarget)),
+    cols: Math.min(max, normalizeTarget(settings.colTarget)),
+  };
 }
 
 /**
