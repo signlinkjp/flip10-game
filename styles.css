@@ -1,5 +1,5 @@
 /* ============================================================
-   FLIP 10 — styles (Build 2)
+   LINEZAP — styles (Build 3)
    明るいポップなライトテーマ。iPhone（375 / 393px）基準。
    青＝選んだマス / 金＝消えるライン / 水色〜ミントの背景。
    文字サイズは html[data-text] で 標準 / 大きめ / 特大 の3段階。
@@ -209,6 +209,154 @@ svg {
   display: flex;
 }
 
+/* ホームは文字サイズ特大で背が足りない端末でも、はみ出して重ならないようにする */
+.screen--home {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------------------------- opening ---------------------------- */
+
+.opening {
+  --cell: 46px;
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% 18%, #ffffff 0%, rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, #f2faff 0%, #dcefff 48%, #cbe4ff 100%);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+
+.opening.is-out {
+  opacity: 0;
+  transform: scale(1.05);
+  pointer-events: none;
+}
+
+.opening__stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  animation: openingIn 0.5s ease both;
+}
+
+.opening__board {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, var(--cell));
+  grid-auto-rows: var(--cell);
+  gap: 6px;
+  padding-bottom: 4px;
+}
+
+.opening__board b {
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  font-size: 1.2rem;
+  font-weight: 900;
+  color: var(--ink);
+  background: linear-gradient(180deg, #ffffff, #dcecff);
+  box-shadow: 0 4px 12px rgba(38, 70, 140, 0.16), inset 0 1px 0 #fff;
+}
+
+/* 3列目の横一列が黄金にパチッと光る（アイコンと同じ絵） */
+.opening__board b.is-zap {
+  animation: openingZap 0.75s 0.45s both;
+}
+
+.opening__zap {
+  position: absolute;
+  left: 50%;
+  /* 黄金に光る3行目の真ん中を横切る（12 + 2×(46+6) + 23 = 139） */
+  top: 139px;
+  width: min(86vw, 340px);
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255, 214, 74, 0) 0%, #ffd24a 22%, #fff8cf 50%, #ffd24a 78%, rgba(255, 214, 74, 0) 100%);
+  box-shadow: 0 0 16px rgba(255, 200, 40, 0.95), 0 0 42px rgba(255, 186, 20, 0.6);
+  transform: translate(-50%, -50%) scaleX(0.04);
+  opacity: 0;
+  animation: zapLine 1s 0.35s both;
+  pointer-events: none;
+}
+
+.opening__logo {
+  margin: 0;
+  font-size: clamp(2.2rem, 12vw, 3.3rem);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  color: var(--ink);
+  text-shadow: 0 3px 0 #ffffff, 0 10px 20px rgba(47, 107, 255, 0.16);
+  animation: openingLogo 0.7s 0.5s both;
+}
+
+.opening__logo span {
+  color: var(--blue);
+}
+
+.opening__sub {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  color: var(--muted);
+  animation: openingLogo 0.7s 0.62s both;
+}
+
+.opening__skip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(30px + var(--safe-b));
+  margin: 0;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  animation: openingSkip 1.4s 0.3s ease-in-out infinite;
+}
+
+@keyframes openingIn {
+  0% { opacity: 0; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes openingLogo {
+  0% { opacity: 0; transform: translateY(8px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes openingSkip {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes openingZap {
+  0% { background: linear-gradient(180deg, #ffffff, #dcecff); transform: scale(1); }
+  35% { background: linear-gradient(180deg, #fff4b0, #ffc42e); transform: scale(1.08); box-shadow: 0 0 22px rgba(255, 196, 30, 0.9); }
+  100% { background: linear-gradient(180deg, #ffe98a, #ffb703); transform: scale(1); }
+}
+
+@keyframes zapLine {
+  0% { opacity: 0; transform: translate(-50%, -50%) scaleX(0.04); }
+  18% { opacity: 1; transform: translate(-50%, -50%) scaleX(0.35); }
+  40% { opacity: 1; transform: translate(-50%, -50%) scaleX(1); }
+  72% { opacity: 0.9; transform: translate(-50%, -50%) scaleX(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scaleX(1.06); }
+}
+
 /* ---------------------------- topbar / brand ---------------------------- */
 
 .topbar {
@@ -232,33 +380,38 @@ svg {
   width: 38px;
   height: 38px;
   flex: none;
-}
-
-.mini {
-  position: absolute;
-  width: 26px;
-  height: 26px;
-  border-radius: 9px;
   display: grid;
-  place-items: center;
-  font-weight: 900;
-  font-size: 15px;
-  color: #fff;
-  box-shadow: 0 4px 10px rgba(21, 32, 70, 0.18);
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: linear-gradient(160deg, #6a9dff 0%, #2f6bff 55%, #1a3fbe 100%);
+  box-shadow: 0 4px 10px rgba(21, 32, 70, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
-.mini--front {
-  left: 0;
-  top: 0;
-  background: linear-gradient(155deg, var(--blue-hi), var(--blue) 50%, var(--blue-deep));
-  transform: rotate(-9deg);
+.brand__mark i {
+  border-radius: 4px;
+  background: linear-gradient(180deg, #ffffff, #dceaff);
+  box-shadow: 0 1px 2px rgba(10, 20, 60, 0.18);
 }
 
-.mini--back {
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(155deg, #ff9cc3, var(--pink) 55%, #c2185b);
-  transform: rotate(7deg);
+.brand__mark i.is-gold {
+  background: linear-gradient(180deg, #ffe98a, #ffb703);
+}
+
+/* アイコンの黄金ラインをそのままミニで（左上のロゴと一体に見せる） */
+.brand__mark .brand__spark {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(255, 214, 74, 0), #ffd24a 30%, #fff6c0 50%, #ffd24a 70%, rgba(255, 214, 74, 0));
+  box-shadow: 0 0 8px rgba(255, 196, 30, 0.95);
+  pointer-events: none;
 }
 
 .brand__text {
@@ -331,17 +484,17 @@ svg {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   text-align: center;
-  padding: 0 0 6px;
+  padding: 2px 0 6px;
 }
 
 .hero__demo {
-  --cell: 40px;
+  --cell: 34px;
   display: grid;
   grid-template-columns: repeat(3, var(--cell));
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 5px;
+  margin-bottom: 6px;
   animation: floaty 5.5s ease-in-out infinite;
 }
 
@@ -405,7 +558,7 @@ svg {
   font-size: 0.85rem;
   color: var(--muted);
   font-weight: 600;
-  max-width: 30ch;
+  max-width: 36ch;
 }
 
 .btn-play {
@@ -505,38 +658,84 @@ svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
 }
 
 .mode__name {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 800;
   color: var(--ink);
+  white-space: nowrap;
 }
 
 .mode__desc {
   font-size: 0.66rem;
-  line-height: 1.35;
+  line-height: 1.28;
   color: var(--muted);
   font-weight: 600;
+  /* 辞書の「\n」で 2行に分ける（「手数ライ／フ」のような不自然な折り返しを作らない） */
+  white-space: pre-line;
+}
+
+/* 十字フリップのカードに収める表裏のペア（0↔5 1↔4 2↔3） */
+.mode__pairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  margin-top: 2px;
+}
+
+.mode__pairs b {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.mode__pairs i {
+  font-style: normal;
+  font-weight: 900;
+  color: var(--blue);
+  margin: 0 1px;
 }
 
 .mode__badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.56rem;
+  font-size: 0.52rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   color: #8a5a00;
   background: var(--gold-soft);
   border-radius: 999px;
-  padding: 2px 6px;
+  padding: 1px 5px;
   flex: none;
 }
 
 .mode__badge svg {
   font-size: 9px;
+}
+
+.mode__badge-text {
+  font-size: inherit;
+  font-weight: 800;
+}
+
+/* 特大の文字サイズでは PRO の文字を省いて鍵マークだけにする（名前を折り返さない） */
+html[data-text='xl'] .mode__badge-text {
+  display: none;
+}
+
+html[data-text='xl'] .mode__badge {
+  padding: 2px 4px;
+}
+
+html[data-text='xl'] .mode__badge svg {
+  font-size: 11px;
 }
 
 .mode.is-locked {
@@ -545,6 +744,19 @@ svg {
 
 .mode.is-locked .mode__name {
   color: var(--muted);
+}
+
+/* タイムアタックは 60/120 のチップがあるので横一杯に置く */
+.mode--time {
+  grid-column: 1 / -1;
+}
+
+.mode--time .mode__chips {
+  padding-top: 2px;
+}
+
+.mode--time .mode__chips button {
+  padding: 7px 0;
 }
 
 .mode__chips {
@@ -811,6 +1023,47 @@ svg {
   grid-template-rows: repeat(5, 1fr);
 }
 
+.board--6 {
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+}
+
+/* 6×6 は 375px でも 1マス 44〜46px を確保する（余白と合計バッジを調整） */
+.board-wrap.is-6 {
+  gap: 4px;
+  max-width: 470px;
+}
+
+.board-wrap.is-6 .board {
+  gap: 4px;
+  padding: 5px;
+  border-radius: 20px;
+}
+
+.board-wrap.is-6 .sums {
+  gap: 4px;
+}
+
+.board-wrap.is-6 .sums--rows {
+  padding: 5px 0;
+}
+
+.board-wrap.is-6 .sums--cols {
+  padding: 0 5px;
+}
+
+.board-wrap.is-6 .sum {
+  min-width: 0;
+  padding: 0 2px;
+  border-radius: 7px;
+  font-size: 0.6rem;
+}
+
+.board-wrap.is-6 .tile {
+  border-radius: 11px;
+  font-size: clamp(0.95rem, 4.6vw, 1.45rem);
+}
+
 .board.is-celebrate {
   animation: boardPulse 0.55s ease;
 }
@@ -844,6 +1097,8 @@ svg {
   background: linear-gradient(180deg, #ffffff, #eef5ff);
   box-shadow: 0 2px 0 rgba(21, 32, 70, 0.10), 0 4px 10px rgba(38, 70, 140, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.9);
+  /* ドラッグで入れ替えるので、スクロールより指の動きを優先する */
+  touch-action: none;
   transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.15s ease;
   will-change: transform;
 }
@@ -887,6 +1142,35 @@ svg {
 .tile.is-hint {
   animation: hintPulse 1.1s ease-in-out infinite;
   z-index: 2;
+}
+
+/* ドラッグ中: 持っているマス（持ち上がる）と、指の下のマス（金色の点線） */
+.tile.is-drag-source {
+  z-index: 4;
+  transform: translateY(-3px) scale(1.06);
+  outline: 3px solid var(--blue);
+  outline-offset: 1px;
+  box-shadow: 0 12px 22px rgba(47, 107, 255, 0.35);
+}
+
+.tile.is-drop-target {
+  z-index: 3;
+  outline: 3px dashed var(--gold);
+  outline-offset: 1px;
+  transform: scale(1.05);
+  box-shadow: 0 0 0 2px #fff6c7, 0 8px 18px rgba(255, 183, 3, 0.35);
+}
+
+.tile.is-drop-target::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid #fff;
 }
 
 @keyframes hintPulse {
@@ -2092,7 +2376,7 @@ svg {
 
 @media (max-height: 700px) {
   .hero__demo {
-    --cell: 32px;
+    display: none;
   }
 
   .hero__logo {
@@ -2143,6 +2427,26 @@ svg {
   }
 }
 
+/* 背の低い端末（667px など）でモードカードが増えてもホームが溢れないように */
+@media (max-height: 760px) {
+  .hero {
+    justify-content: flex-start;
+    padding-top: 2px;
+  }
+
+  .hero__tagline {
+    margin: 4px 0 8px;
+  }
+
+  .hero__best {
+    margin-top: 6px;
+  }
+
+  .mode__main {
+    padding: 8px 10px 9px;
+  }
+}
+
 @media (max-width: 360px) {
   .screen {
     padding-left: 10px;
@@ -2160,6 +2464,10 @@ svg {
   .sum {
     min-width: 26px;
     font-size: 0.7rem;
+  }
+
+  .board-wrap.is-6 .sum {
+    font-size: 0.56rem;
   }
 }
 

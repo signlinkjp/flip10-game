@@ -1,13 +1,13 @@
-# FLIP 10 — プライバシーポリシー / Privacy Policy
+# LINEZAP — プライバシーポリシー / Privacy Policy
 
-最終更新日: 2026年11月23日 ・ Last updated: 23 November 2026
+最終更新日: 2026年11月24日 ・ Last updated: 24 November 2026
 提供: T-maks Games ・ お問い合わせ: t.maks.ts@gmail.com
 
 ---
 
 ## 日本語
 
-FLIP 10（以下「本アプリ」）は、T-maks Games が提供する1人用パズルゲームです。本アプリは完全にオフラインで動き、アカウント登録もなく、個人情報を集めません。
+LINEZAP（以下「本アプリ」）は、T-maks Games が提供する1人用パズルゲームです。本アプリは完全にオフラインで動き、アカウント登録もなく、個人情報を集めません。
 
 ### 集めない情報
 
@@ -33,7 +33,7 @@ PRO（買い切り）の決済は Apple の App Store が処理します。本�
 
 ## English
 
-FLIP 10 (the "App") is a single-player puzzle game provided by T-maks Games. The App runs entirely offline, has no account, and does not collect personal information.
+LINEZAP (the "App") is a single-player puzzle game provided by T-maks Games. The App runs entirely offline, has no account, and does not collect personal information.
 
 ### What we do not collect
 
@@ -41,7 +41,7 @@ We do not collect your name, email address, phone number, location, contacts, ph
 
 ### What stays on your device
 
-Scores, best records and settings (sound, music, hint, vibration, text size, language, line totals) are stored only on this device, inside the App's own storage. They are never sent anywhere and are removed with the App.
+Scores, best records and settings (sound, music, hint, vibration, text size, language, clear target) are stored only on this device, inside the App's own storage. They are never sent anywhere and are removed with the App.
 
 ### Network and advertising
 
@@ -59,7 +59,8 @@ For anything about the App or this policy, write to t.maks.ts@gmail.com.
 
 ### App Store Connect 用メモ
 
+- アプリ表示名: **LINEZAP**（Bundle ID `jp.signlink.Flip10` は変更しない）
 - プライバシー: **データを収集しません**（App のプライバシー → 「データを収集しない」）
 - ネットワーク: なし（オフライン専用）
-- 課金: 非消耗型1点 `jp.signlink.Flip10.pro`（表示名 `FLIP 10 PRO`、価格 ¥300 プレースホルダ）
+- 課金: 非消耗型1点 `jp.signlink.Flip10.pro`（表示名 `LINEZAP PRO`、価格 ¥300 プレースホルダ）
 - アプリ内にプライバシーポリシー全文を表示（設定 → プライバシーポリシー）

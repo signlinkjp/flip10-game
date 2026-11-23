@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>ja</string>
 	<key>CFBundleDisplayName</key>
-        <string>FLIP 10</string>
+        <string>LINEZAP</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

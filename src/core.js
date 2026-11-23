@@ -1,33 +1,40 @@
 /**
- * FLIP 10 — ルールと盤面（Build 2）
+ * LINEZAP — ルールと盤面（Build 3）
  *
  * ここは DOM も音も知らない。盤面・入れ替え・ライン消去・コンボ・得点・手数ライフだけを持つ。
  * UI（src/main.js）もテストも、このファイルの関数だけを見る。
  *
- * Build 2 のルールの正:
- *   メイン（無料）: 好きな2マスをタップで入れ替える。1手ごとに手数ライフ −1。
+ * Build 3 のルールの正:
+ *   メイン（無料）: 好きな2マスを入れ替える（ドラッグでもタップ2回でもよい）。1手ごとに手数ライフ −1。
  *   行か列の合計が target になると、そのラインが金色に光って消え、上から新しいタイルが落ちてくる。
  *   消すと手数が回復する（1ライン +3 / 2ライン +5 / 3ライン以上か連鎖 +7、上限7）。
  *   手数が0になったらゲームオーバー（エンドレス得点モード）。
- *   PRO: 5×5、タイムアタック（60/120秒）、十字フリップ特別モード、行・列ごとの合計 9〜40 の設定。
+ *   PRO: 5×5・6×6、タイムアタック（60/120秒）、十字フリップ特別モード。
  *   十字フリップは Build 1 のルール（＋の字が反転・表裏で5）をそのまま特別モードとして残す。
  *
+ * 消える合計（target）は行も列も同じ1つの数字:
+ *   4×4（クラシック / 十字フリップ / タイムアタック）… 10 固定
+ *   5×5 / 6×6（PRO のワイド）… 12〜42 を設定で選ぶ（既定 20）
+ *
  * 数字の出し方は target と盤面サイズから自動で決める（digitPool）。
- *   4×4 で 9 → 0..4 / 4×4 で 10 → 0..5 / 4×4 で 20 → 3..7 / 4×4 で 35 → 7..9
- *   5×5 で 9 → 0..4 / 5×5 で 40 → 7..9
+ *   4×4 で 10 → 0..6 / 5×5 で 20 → 1..7 / 6×6 で 20 → 0..7 / 6×6 で 42 → 4..9
  * 盤面は必ず「最初から消えていない」「有効な1手が残っている」状態で作る。
  */
 
 export const VERSION = '1.0.0';
-export const BUILD = 2;
+export const BUILD = 3;
 
-/** 消える合計の範囲（PRO で行・列それぞれ 9〜40） */
-export const MIN_TARGET = 9;
-export const MAX_TARGET = 40;
+/** 4×4 の消える合計（固定） */
 export const DEFAULT_TARGET = 10;
+/** 5×5 / 6×6 の消える合計（PRO の設定で選ぶ範囲） */
+export const MIN_TARGET = 12;
+export const MAX_TARGET = 42;
+export const DEFAULT_WIDE_TARGET = 20;
 
 export const FREE_SIZE = 4;
 export const PRO_SIZE = 5;
+/** いちばん大きい盤面（PRO の 6×6） */
+export const MAX_SIZE = 6;
 
 /** 十字フリップ（PRO 特別モード）の表裏。表 + 裏 = 5 */
 export const PAIR_SUM = 5;
@@ -60,14 +67,18 @@ export const SIDES = Object.freeze({ front: 'front', back: 'back' });
  * 遊び方（モード）。PRO の線引きは src/pro.js が持つ。
  *   classic 4×4 入れ替え・手数ライフ・エンドレス（無料）
  *   wide    5×5 入れ替え・手数ライフ（PRO）
+ *   wide6   6×6 入れ替え・手数ライフ（PRO）
  *   cross   4×4 十字フリップ特別モード・手数ライフ（PRO）
  *   time    4×4 入れ替え・タイムアタック 60/120秒（PRO）
+ *
+ * `sized: true` のモードだけが設定の「消える合計」を使う（4×4 は 10 固定）。
  */
 export const MODES = Object.freeze([
-  Object.freeze({ id: 'classic', size: FREE_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: false }),
-  Object.freeze({ id: 'wide', size: PRO_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: true }),
-  Object.freeze({ id: 'cross', size: FREE_SIZE, mechanic: MECHANIC.flip, life: true, timed: false, pro: true }),
-  Object.freeze({ id: 'time', size: FREE_SIZE, mechanic: MECHANIC.swap, life: false, timed: true, pro: true, timeLimit: 60 }),
+  Object.freeze({ id: 'classic', size: FREE_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: false, sized: false }),
+  Object.freeze({ id: 'wide', size: PRO_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: true, sized: true }),
+  Object.freeze({ id: 'wide6', size: MAX_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: true, sized: true }),
+  Object.freeze({ id: 'cross', size: FREE_SIZE, mechanic: MECHANIC.flip, life: true, timed: false, pro: true, sized: false }),
+  Object.freeze({ id: 'time', size: FREE_SIZE, mechanic: MECHANIC.swap, life: false, timed: true, pro: true, sized: false, timeLimit: 60 }),
 ]);
 
 export function modeById(id) {
@@ -109,28 +120,39 @@ function randomInt(min, max, rng) {
 /* 合計（target）                                                      */
 /* ------------------------------------------------------------------ */
 
-export function clampTarget(value, size = FREE_SIZE) {
+/**
+ * その盤面で使う消える合計。
+ *   4×4 は 10 固定（十字フリップもタイムアタックも同じ）
+ *   5×5 / 6×6 は 12〜42（9×size を超えない）
+ */
+export function clampTarget(value, size = PRO_SIZE) {
+  if (size <= FREE_SIZE) return DEFAULT_TARGET;
   const number = Math.round(Number(value));
-  const safe = Number.isFinite(number) ? number : DEFAULT_TARGET;
-  const max = Math.min(MAX_TARGET, MAX_DIGIT * size);
+  const safe = Number.isFinite(number) ? number : DEFAULT_WIDE_TARGET;
+  const max = maxTargetFor(size);
   return Math.min(max, Math.max(MIN_TARGET, safe));
 }
 
-/** この盤面で実際に使う合計の上限（4×4 は 9×4 = 36 まで） */
-export function maxTargetFor(size = FREE_SIZE) {
+/** この盤面で実際に使う合計の上限（5×5 は 42 / 6×6 も 42） */
+export function maxTargetFor(size = PRO_SIZE) {
   return Math.min(MAX_TARGET, MAX_DIGIT * size);
 }
 
-/** 行と列の合計を持つ形にそろえる */
-export function targetPair(rowTarget = DEFAULT_TARGET, colTarget = rowTarget, size = FREE_SIZE) {
-  const rows = clampTarget(rowTarget, size);
-  const cols = clampTarget(colTarget, size);
-  return { rows, cols };
+/** 設定の合計が、このモードで実際にいくつになるか（4×4 は 10） */
+export function targetForMode(modeId, setting = DEFAULT_WIDE_TARGET) {
+  const mode = modeById(modeId);
+  return mode.sized ? clampTarget(setting, mode.size) : DEFAULT_TARGET;
+}
+
+/** 行と列の合計を持つ形にそろえる（行も列も同じ1つの数字） */
+export function targetPair(value = DEFAULT_TARGET, size = PRO_SIZE) {
+  const target = clampTarget(value, size);
+  return { rows: target, cols: target };
 }
 
 function normalizeTargets(size, value) {
-  if (value && typeof value === 'object') return targetPair(value.rows ?? value.row, value.cols ?? value.col, size);
-  return targetPair(value ?? DEFAULT_TARGET, value ?? DEFAULT_TARGET, size);
+  if (value && typeof value === 'object') return targetPair(value.rows ?? value.cols ?? value.target ?? value.row ?? value.col, size);
+  return targetPair(value ?? DEFAULT_TARGET, size);
 }
 
 /**
@@ -140,8 +162,9 @@ function normalizeTargets(size, value) {
  * 「入れ替え1手で target に届く」ことの両立。average = target / size を中心に
  * 7種類ほどの数字を出し、高い target では 9 側へ、低い target では 0 側へ寄せる。
  *
- *   4×4 T=9  → 0..6 / T=10 → 0..6 / T=20 → 2..8 / T=28 → 4..9 / T=36 → 6..9
- *   5×5 T=9  → 0..5 / T=25 → 2..8 / T=40 → 5..9
+ *   4×4 T=10 → 0..6（固定）
+ *   5×5 T=12 → 0..5 / T=20 → 1..7 / T=30 → 3..9 / T=42 → 5..9
+ *   6×6 T=12 → 0..5 / T=20 → 0..7 / T=30 → 2..8 / T=42 → 4..9
  */
 export function digitPool(size = FREE_SIZE, target = DEFAULT_TARGET) {
   const center = target / size;
@@ -159,7 +182,9 @@ export function digitPool(size = FREE_SIZE, target = DEFAULT_TARGET) {
 
 function poolFor(size, mechanic, t) {
   if (mechanic === MECHANIC.flip) return { min: 0, max: MAX_FACE };
-  return digitPool(size, Math.round((t.rows + t.cols) / 2));
+  const pool = digitPool(size, t.rows);
+  // center は「1マスの平均が target/size になる」位置。bell でその周りに集める
+  return { ...pool, center: t.rows / size, bell: true };
 }
 
 /* ------------------------------------------------------------------ */
@@ -171,8 +196,24 @@ function poolFor(size, mechanic, t) {
  *   入れ替えモード: `digit` だけ（0〜9）
  *   十字フリップ: front / back（足して5）/ side
  */
-export function makeTile({ min = 0, max = MAX_DIGIT, mechanic = MECHANIC.swap, rng = Math.random } = {}) {
-  const value = randomInt(Math.max(0, min), Math.min(mechanic === MECHANIC.flip ? MAX_FACE : MAX_DIGIT, max), rng);
+/**
+ * 数字を1つ選ぶ。
+ *   bell: 山なり（中心ほど出やすい）にして、合計が目標の近くに自然に集まるようにする
+ *   center: 山の頂上（省略すると範囲の真ん中）
+ *   十字フリップは一様（0〜5）
+ */
+function randomValue(min, max, rng, bell, center) {
+  if (!bell) return randomInt(min, max, rng);
+  const peak = Math.min(max, Math.max(min, Number.isFinite(center) ? center : (min + max) / 2));
+  const spread = Math.max(0.5, Math.max(peak - min, max - peak));
+  const shape = rng() + rng() - 1; // -1..1 の三角形分布（0 が一番出やすい）
+  return Math.min(max, Math.max(min, Math.round(peak + shape * spread)));
+}
+
+export function makeTile({ min = 0, max = MAX_DIGIT, center, mechanic = MECHANIC.swap, rng = Math.random, bell = false } = {}) {
+  const low = Math.max(0, min);
+  const high = Math.min(mechanic === MECHANIC.flip ? MAX_FACE : MAX_DIGIT, max);
+  const value = randomValue(low, Math.max(low, high), rng, bell && mechanic === MECHANIC.swap, center);
   return tileWithValue(value, mechanic);
 }
 
@@ -468,15 +509,13 @@ export const STATUS = Object.freeze({ playing: 'playing', over: 'over' });
 
 export function startGame({
   mode = 'classic',
-  rowTarget = DEFAULT_TARGET,
-  colTarget = rowTarget,
   target,
   timeLimit,
   rng = Math.random,
 } = {}) {
   const config = modeById(mode);
   const limit = config.timed ? (TIME_LIMITS.includes(timeLimit) ? timeLimit : config.timeLimit) : 0;
-  const t = normalizeTargets(config.size, target ?? { rows: rowTarget, cols: colTarget });
+  const t = targetPair(config.sized ? (target ?? DEFAULT_WIDE_TARGET) : DEFAULT_TARGET, config.size);
   const pool = poolFor(config.size, config.mechanic, t);
   const opened = ensurePlayable(makeBoard({ size: config.size, mechanic: config.mechanic, target: t, pool, rng }), {
     size: config.size,

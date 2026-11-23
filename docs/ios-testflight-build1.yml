@@ -1,6 +1,6 @@
-# FLIP 10 iOS TestFlight（Build 2 以降）
+# LINEZAP iOS TestFlight（Build 3 以降）
 # ============================================================
-# Capacitor iOS の TestFlight 配信用ワークフロー。
+# Capacitor iOS の TestFlight 配信用ワークフロー（LINEZAP）。
 # トモアキさんが Safari で GitHub に貼り付ける用。
 #
 #   .github/workflows/ios-testflight-build1.yml
@@ -25,7 +25,7 @@
 #   APPSTORE_CONNECT_PRIVATE_KEY    … AuthKey_*.p8 の中身（ASC_API_KEY_P8 でも可）
 # ============================================================
 
-name: FLIP 10 iOS TestFlight
+name: LINEZAP iOS TestFlight
 
 on:
   workflow_dispatch:
@@ -45,12 +45,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: flip10-ios-testflight
+  group: linezap-ios-testflight
   cancel-in-progress: false
 
 env:
   BUNDLE_ID: jp.signlink.Flip10
-  APP_NAME: FLIP 10
+  APP_NAME: LINEZAP
   MARKETING_VERSION: "1.0.0"
 
 jobs:
@@ -85,7 +85,7 @@ jobs:
       - name: Install web dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Run the FLIP 10 rule and Build 2 tests
+      - name: Run the LINEZAP rule and Build 3 tests
         run: npm test
 
       - name: Guard the shipped game files
@@ -98,10 +98,12 @@ jobs:
           node --check src/storage.js
           node --check src/main.js
           # 基本ルール: 表と裏は足して5 / ラインは合計10で消える
-          # メインのルール: 2マス入れ替え / 9〜40 / 手数ライフ / 十字フリップ
+          # メインのルール: 2マス入れ替え / 合計12〜42 / 手数ライフ / 十字フリップ / 6×6
           grep -q "PAIR_SUM = 5" src/core.js
           grep -q "DEFAULT_TARGET = 10" src/core.js
-          grep -q "MAX_TARGET = 40" src/core.js
+          grep -q "MAX_TARGET = 42" src/core.js
+          grep -q "MIN_TARGET = 12" src/core.js
+          grep -q "DEFAULT_WIDE_TARGET = 20" src/core.js
           grep -q "MAX_MOVES = 7" src/core.js
           grep -q "export function swapTiles" src/core.js
           grep -q "export function flipAt" src/core.js
@@ -113,9 +115,10 @@ jobs:
           grep -q "index + size" src/core.js
           grep -q "index - 1" src/core.js
           grep -q "index + 1" src/core.js
-          # 4×4 無料 / 5×5・十字フリップ・タイムアタックは PRO
+          # 4×4 無料 / 5×5・6×6・十字フリップ・タイムアタックは PRO
           grep -q "id: 'classic'" src/core.js
           grep -q "id: 'wide'" src/core.js
+          grep -q "id: 'wide6'" src/core.js
           grep -q "id: 'cross'" src/core.js
           grep -q "TIME_LIMITS" src/core.js
           grep -q "PRODUCT_ID = 'jp.signlink.Flip10.pro'" src/pro.js
@@ -145,7 +148,7 @@ jobs:
           grep -q -- '-webkit-touch-callout' styles.css
           grep -q 'viewport-fit=cover' index.html
           grep -q 'env(safe-area-inset-top' styles.css
-          # あそびかた（5ステップ）とプライバシー全文 / 明るいテーマ・文字サイズ・合計バッジ
+          # あそびかた（5ステップ）とプライバシー全文 / 明るいテーマ・文字サイズ・オープニング・合計バッジ
           grep -q 'data-sheet="howto"' index.html
           grep -q 'diag--swap' index.html
           grep -q 'diag--moves' index.html
@@ -156,16 +159,26 @@ jobs:
           grep -q 'id="set-text-size"' index.html
           grep -q 'id="btn-settings-play"' index.html
           grep -q 'id="btn-hint"' index.html
+          grep -q 'id="opening"' index.html
+          grep -q 'id="set-target-value"' index.html
+          grep -q 'id="board-wrap"' index.html
+          grep -q 'board--6' styles.css
+          grep -q 'is-drag-source' styles.css
+          grep -q 'is-drop-target' styles.css
+          grep -q 'pre-line' styles.css
+          grep -q 'onBoardPointerDown' src/main.js
+          grep -q 'finishOpening' src/main.js
+          grep -q 'hud.sumHidden' src/main.js
           grep -q "html\[data-text='xl'\]" styles.css
           grep -q -- '--bg: #f1f8ff' styles.css
           grep -q 'data-sheet="privacy"' index.html
           test -f docs/privacy.md
           grep -q 'データを収集しません' docs/privacy.md
           # アイコン（1024・RGB・透過なし）
-          test -f assets/flip10-appicon-1024.png
+          test -f assets/linezap-appicon-1024.png
           python3 - <<'PY'
           import struct, pathlib
-          for path in ['assets/flip10-appicon-1024.png',
+          for path in ['assets/linezap-appicon-1024.png',
                        'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png']:
               data = pathlib.Path(path).read_bytes()
               assert data[:4] == b'\x89PNG', path
@@ -181,7 +194,7 @@ jobs:
           test -f www/src/main.js
           test -f www/src/i18n.js
           test -f www/src/pro.js
-          echo "FLIP 10 web assets OK"
+          echo "LINEZAP web assets OK"
 
       - name: Guard the iOS project contract
         run: |
@@ -207,7 +220,7 @@ jobs:
           python3 - <<'PY'
           import os, plistlib, pathlib
           plist = plistlib.loads(pathlib.Path('ios/App/App/Info.plist').read_bytes())
-          assert plist['CFBundleDisplayName'] == 'FLIP 10', plist['CFBundleDisplayName']
+          assert plist['CFBundleDisplayName'] == 'LINEZAP', plist['CFBundleDisplayName']
           pbx = pathlib.Path('ios/App/App.xcodeproj/project.pbxproj').read_text()
           assert 'PRODUCT_BUNDLE_IDENTIFIER = jp.signlink.Flip10;' in pbx
           assert 'MARKETING_VERSION = 1.0.0;' in pbx

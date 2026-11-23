@@ -72,5 +72,5 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(pro
 if (isMain) {
   const port = Number(process.argv[2] ?? 4173);
   const { url } = await startServer({ port });
-  console.log(`FLIP 10 → ${url}`);
+  console.log(`LINEZAP → ${url}`);
 }

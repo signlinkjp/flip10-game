@@ -1,14 +1,14 @@
 {
-  "name": "flip10",
+  "name": "linezap",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "FLIP 10 — 2マス入れ替えて合計10で消す1人用パズル（Capacitor iOS / Build 2）",
+  "description": "LINEZAP — 2×2 を入れ替えて合計をそろえて消す1人用パズル（Capacitor iOS / Build 3）",
   "license": "UNLICENSED",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/core.test.js test/build2.test.js",
+    "test": "node --test --test-concurrency=1 test/core.test.js test/build3.test.js",
     "serve": "node tools/serve.mjs",
-    "shots": "node tools/shots-b2.mjs",
+    "shots": "node tools/shots-b3.mjs",
     "www": "node tools/make-www.mjs",
     "ios:sync": "cap sync ios"
   },
@@ -22,5 +22,5 @@
   "devDependencies": {
     "@capacitor/cli": "8.6.2"
   },
-  "build": 2
+  "build": 3
 }

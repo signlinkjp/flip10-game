@@ -1,30 +1,41 @@
 /**
- * FLIP 10 — 端末の中だけの記録（設定とベストスコア）
+ * LINEZAP — 端末の中だけの記録（設定とベストスコア）
  *
  * サーバーは無い。localStorage は iOS の WKWebView でもそのまま使え、
  * アプリを消せば一緒に消える。読めない環境（プライベートモード等）でも
  * 落ちないように、その場限りの Map に切り替える。
+ *
+ * Build 3 から:
+ *   消える合計は「行も列も1つの数字」（`target`）。4×4 は 10 固定、5×5 / 6×6 は 12〜42。
+ *   BGM は最初から ON（`bgmDefault` が 3 になった最初の1回だけ ON にし、
+ *   ユーザーが OFF にしたらそれ以降は尊重する）。
  */
 
-import { DEFAULT_TARGET, MIN_TARGET, MAX_TARGET, maxTargetFor, FREE_SIZE } from './core.js';
+import { DEFAULT_TARGET, DEFAULT_WIDE_TARGET, clampTarget, FREE_SIZE } from './core.js';
 import { DEFAULT_LOCALE, detectLocale, isLocale } from './i18n.js';
 
+// キー名は FLIP 10 時代のまま（改名でユーザーのベストと設定を失わないため）
 export const SETTINGS_KEY = 'flip10.settings.v1';
 export const BEST_KEY = 'flip10.best.v1';
+
+/** BGM の既定を ON にした設定の版（Build 3） */
+export const BGM_DEFAULT_VERSION = 3;
 
 /** 文字サイズの3段階 */
 export const TEXT_SIZES = Object.freeze(['normal', 'large', 'xl']);
 
 export const DEFAULT_SETTINGS = Object.freeze({
   sound: true,
-  bgm: false,
+  /** Build 3 から最初から ON */
+  bgm: true,
+  bgmDefault: BGM_DEFAULT_VERSION,
   hint: true,
   /** iOS のバイブ（ふるえ）。既定 ON */
   haptic: true,
   textSize: 'normal',
   locale: null,
-  rowTarget: DEFAULT_TARGET,
-  colTarget: DEFAULT_TARGET,
+  /** 5×5 / 6×6 の消える合計（4×4 は 10 固定） */
+  target: DEFAULT_WIDE_TARGET,
 });
 
 function memoryStore() {
@@ -69,28 +80,35 @@ function writeJson(store, key, value) {
   }
 }
 
-/** 合計は 9〜40（4×4 の上限は 36）に丸める */
-export function normalizeTarget(value, fallback = DEFAULT_TARGET) {
+/** 合計は 12〜42（5×5 / 6×6）に丸める */
+export function normalizeTarget(value, fallback = DEFAULT_WIDE_TARGET) {
   const number = Math.round(Number(value));
-  if (!Number.isFinite(number)) return fallback;
-  return Math.min(MAX_TARGET, Math.max(MIN_TARGET, number));
+  if (!Number.isFinite(number)) return clampTarget(fallback);
+  return clampTarget(number);
 }
 
 /** 設定を正規化（壊れた値・古い値でも遊べる形にする） */
 export function normalizeSettings(raw = {}) {
   const source = raw && typeof raw === 'object' ? raw : {};
-  const legacy = Number(source.target);
-  const fallback = Number.isFinite(legacy) ? normalizeTarget(legacy) : DEFAULT_TARGET;
+  const legacy = source.target ?? source.rowTarget ?? source.colTarget;
+  const bgmFromV3 = Number(source.bgmDefault) >= BGM_DEFAULT_VERSION;
   return {
     sound: typeof source.sound === 'boolean' ? source.sound : DEFAULT_SETTINGS.sound,
-    bgm: typeof source.bgm === 'boolean' ? source.bgm : DEFAULT_SETTINGS.bgm,
+    // Build 3 で一度だけ ON にし、それ以降はユーザーの選択を尊重する
+    bgm: bgmFromV3 && typeof source.bgm === 'boolean' ? source.bgm : true,
+    bgmDefault: BGM_DEFAULT_VERSION,
     hint: typeof source.hint === 'boolean' ? source.hint : DEFAULT_SETTINGS.hint,
     haptic: typeof source.haptic === 'boolean' ? source.haptic : DEFAULT_SETTINGS.haptic,
     textSize: TEXT_SIZES.includes(source.textSize) ? source.textSize : DEFAULT_SETTINGS.textSize,
     locale: isLocale(source.locale) ? source.locale : null,
-    rowTarget: normalizeTarget(source.rowTarget, fallback),
-    colTarget: normalizeTarget(source.colTarget, fallback),
+    target: normalizeTarget(legacy),
   };
+}
+
+/** 端末に保存された設定が Build 3 の BGM 既定をまだ通っていないか */
+export function needsBgmDefault(store = createStore()) {
+  const raw = readJson(store, SETTINGS_KEY, {});
+  return !(Number(raw.bgmDefault) >= BGM_DEFAULT_VERSION);
 }
 
 export function loadSettings(store = createStore()) {
@@ -98,7 +116,8 @@ export function loadSettings(store = createStore()) {
 }
 
 export function saveSettings(settings, store = createStore()) {
-  const clean = normalizeSettings(settings);
+  // 書き込みはユーザーの選択なので、BGM の既定版を一緒に付けて尊重する
+  const clean = normalizeSettings({ ...(settings && typeof settings === 'object' ? settings : {}), bgmDefault: BGM_DEFAULT_VERSION });
   writeJson(store, SETTINGS_KEY, clean);
   return clean;
 }
@@ -107,13 +126,11 @@ export function updateSettings(patch, store = createStore()) {
   return saveSettings({ ...loadSettings(store), ...(patch || {}) }, store);
 }
 
-/** その盤面サイズで実際に使う合計（4×4 は最大36） */
+/** その盤面サイズで実際に使う合計（4×4 は 10 固定、5×5 / 6×6 は設定値） */
 export function targetsFor(settings, size = FREE_SIZE) {
-  const max = maxTargetFor(size);
-  return {
-    rows: Math.min(max, normalizeTarget(settings.rowTarget)),
-    cols: Math.min(max, normalizeTarget(settings.colTarget)),
-  };
+  if (size <= FREE_SIZE) return { rows: DEFAULT_TARGET, cols: DEFAULT_TARGET };
+  const target = clampTarget(settings && settings.target, size);
+  return { rows: target, cols: target };
 }
 
 /**

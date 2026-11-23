@@ -1,9 +1,9 @@
 /**
- * FLIP 10 — 画面と操作（Build 2）
+ * LINEZAP — 画面と操作（Build 3）
  *
  * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、
  * バイブは src/haptics.js、課金は src/pro.js、記録は src/storage.js。
- * ここは「盤面を描く・タップを受ける・シートを開く」だけを持つ。
+ * ここは「オープニングを出す・盤面を描く・ドラッグ/タップを受ける・シートを開く」だけを持つ。
  *
  * 1回の入れ替えで core.swapTiles() が「入れ替え → 消えるライン → 落ちてくる盤面 →
  * 手数の回復 → ゲームオーバー」を全部計算して返すので、ここはその順番どおりに見せる。
@@ -23,6 +23,10 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const COMBO_KEYS = ['combo.nice', 'combo.great', 'combo.super', 'combo.amazing', 'combo.fever'];
 /** 何も操作がないままヒントを出すまでの時間（ヒント ON のとき） */
 const IDLE_HINT_MS = 9000;
+/** オープニングの長さ（タップですぐ終わる） */
+const OPENING_MS = 1650;
+/** タップとドラッグを分ける指の移動量（px） */
+const DRAG_THRESHOLD = 7;
 
 /* ------------------------------------------------------------------ */
 /* 状態                                                                */
@@ -48,6 +52,12 @@ const state = {
   hintShown: false,
   idleTimer: null,
   lastMoves: null,
+  opening: true,
+  openingTimer: null,
+  /** ドラッグ中の指の位置と、いま指の下にあるマス */
+  drag: null,
+  /** ドラッグ直後の click をタップとして扱わない */
+  suppressClick: false,
 };
 
 const audio = createAudioEngine({
@@ -101,7 +111,7 @@ function refreshTexts() {
   document.documentElement.setAttribute('lang', i18n.localeMeta(state.locale).tag);
   applyTextSize();
   i18n.applyI18n(document, state.locale);
-  document.title = 'FLIP 10';
+  document.title = 'LINEZAP';
 
   const label = i18n.localeMeta(state.locale).label;
   const langLabel = $('#lang-label');
@@ -109,7 +119,6 @@ function refreshTexts() {
   const setLangLabel = $('#set-language-label');
   if (setLangLabel) setLangLabel.textContent = label;
 
-  buildLegend($('#legend-home'));
   buildLegend($('#legend-howto'));
   buildModes();
   buildLangGrid();
@@ -134,15 +143,10 @@ function updateVersion() {
 function updateRulesInfo() {
   const node = $('#rules-target');
   if (node) {
-    node.textContent = i18n.t('rules.line', state.locale, {
-      row: state.settings.rowTarget,
-      col: state.settings.colTarget,
-    });
+    node.textContent = i18n.t('rules.line', state.locale, { target: state.settings.target });
   }
-  const row = $('#set-row-target');
-  const col = $('#set-col-target');
-  if (row) row.textContent = String(state.settings.rowTarget);
-  if (col) col.textContent = String(state.settings.colTarget);
+  const value = $('#set-target-value');
+  if (value) value.textContent = String(state.settings.target);
   $$('#set-text-size button').forEach((button) => {
     const on = button.dataset.size === state.settings.textSize;
     button.classList.toggle('is-on', on);
@@ -183,15 +187,19 @@ function buildModes() {
   for (const config of core.MODES) {
     const locked = !pro.canPlayMode(state.entitled, config.id);
     const card = document.createElement('div');
-    card.className = `mode${locked ? ' is-locked' : ''}`;
+    card.className = `mode mode--${config.id}${locked ? ' is-locked' : ''}`;
     card.dataset.mode = config.id;
     card.innerHTML = `
       <button class="mode__main" type="button" data-mode="${config.id}">
         <span class="mode__head">
           <span class="mode__name">${i18n.t(`mode.${config.id}`, state.locale)}</span>
-          ${locked ? `<span class="mode__badge" title="${i18n.t('mode.locked', state.locale)}">${icon('lock')}${i18n.t('home.pro', state.locale)}</span>` : ''}
+          ${locked ? `<span class="mode__badge" title="${i18n.t('mode.locked', state.locale)}">${icon('lock')}<b class="mode__badge-text">${i18n.t('home.pro', state.locale)}</b></span>` : ''}
         </span>
         <span class="mode__desc">${i18n.t(`mode.${config.id}.desc`, state.locale)}</span>
+        ${config.id === 'cross' ? `<span class="mode__pairs" aria-hidden="true">${core
+          .pairLegend()
+          .map((pair) => `<b>${pair.front}<i>↔</i>${pair.back}</b>`)
+          .join('')}</span>` : ''}
       </button>
       ${config.timed ? `<div class="mode__chips">
         <button type="button" data-time="60">60</button>
@@ -257,7 +265,7 @@ function updatePlayLegend() {
   const targetText = $('#target-text');
   const game = state.game;
   if (game && targetText) {
-    targetText.textContent = i18n.t('rules.line', state.locale, { row: game.targets.rows, col: game.targets.cols });
+    targetText.textContent = String(game.targets.rows);
   }
   if (target) target.hidden = Boolean(game && game.mechanic === core.MECHANIC.flip);
   if (!node) return;
@@ -287,7 +295,10 @@ function buildBoard(game) {
   board.innerHTML = '';
   board.style.setProperty('--n', String(game.size));
   const wrap = $('#board-wrap');
-  if (wrap) wrap.style.setProperty('--n', String(game.size));
+  if (wrap) {
+    wrap.style.setProperty('--n', String(game.size));
+    wrap.className = `board-wrap is-${game.size}`;
+  }
   for (let i = 0; i < game.size * game.size; i += 1) {
     const tile = document.createElement('button');
     tile.type = 'button';
@@ -356,17 +367,21 @@ function clearHintTiles() {
   state.hintShown = false;
 }
 
-/** 行・列の合計を右と下のバッジに出す */
+/** 行・列の合計バッジを「今の合計/目標」（ヒントOFFなら「？/目標」）で出す */
 function renderSums(game, { clearedRows = [], clearedCols = [] } = {}) {
   if (!game) return;
   const { rows, cols } = core.sums(game.board, game.size);
+  const show = state.settings.hint;
+  const hidden = i18n.t('hud.sumHidden', state.locale);
+  const rowTarget = game.targets.rows;
+  const colTarget = game.targets.cols;
   const rowNodes = $$('#sums-rows .sum');
   const colNodes = $$('#sums-cols .sum');
   rowNodes.forEach((node, r) => {
     const value = rows[r];
-    node.textContent = String(value);
-    node.classList.toggle('is-hit', value === game.targets.rows);
-    node.classList.toggle('is-near', value !== game.targets.rows && Math.abs(value - game.targets.rows) <= 2);
+    node.textContent = `${show ? value : hidden}/${rowTarget}`;
+    node.classList.toggle('is-hit', show && value === rowTarget);
+    node.classList.toggle('is-near', show && value !== rowTarget && Math.abs(value - rowTarget) <= 2);
     node.classList.remove('is-cleared');
     if (clearedRows.includes(r)) {
       node.classList.remove('is-cleared');
@@ -377,9 +392,9 @@ function renderSums(game, { clearedRows = [], clearedCols = [] } = {}) {
   });
   colNodes.forEach((node, c) => {
     const value = cols[c];
-    node.textContent = String(value);
-    node.classList.toggle('is-hit', value === game.targets.cols);
-    node.classList.toggle('is-near', value !== game.targets.cols && Math.abs(value - game.targets.cols) <= 2);
+    node.textContent = `${show ? value : hidden}/${colTarget}`;
+    node.classList.toggle('is-hit', show && value === colTarget);
+    node.classList.toggle('is-near', show && value !== colTarget && Math.abs(value - colTarget) <= 2);
     node.classList.remove('is-cleared');
     if (clearedCols.includes(c)) {
       node.classList.remove('is-cleared');
@@ -549,7 +564,7 @@ function updateHud({ gained = 0, lost = 0 } = {}) {
   if (game) {
     const targetText = $('#target-text');
     if (targetText) {
-      targetText.textContent = i18n.t('rules.line', state.locale, { row: game.targets.rows, col: game.targets.cols });
+      targetText.textContent = String(game.targets.rows);
     }
   }
   const best = $('#hud-best');
@@ -608,18 +623,15 @@ function startGame(modeId, timeLimit) {
   closeSheet();
   clearIdle();
   audio.unlock();
-  const config = core.modeById(modeId);
-  const rows = state.entitled ? state.settings.rowTarget : core.DEFAULT_TARGET;
-  const cols = state.entitled ? state.settings.colTarget : core.DEFAULT_TARGET;
   state.game = core.startGame({
     mode: modeId,
-    rowTarget: rows,
-    colTarget: cols,
+    target: state.settings.target,
     timeLimit,
   });
   state.shownScore = 0;
   state.busy = false;
   state.selected = null;
+  state.drag = null;
   state.hintShown = false;
   state.lastMoves = state.game.moves;
   state.bestAtStart = state.bests[core.gameKey(state.game.modeId, state.game.timeLimit)] ?? 0;
@@ -632,10 +644,6 @@ function startGame(modeId, timeLimit) {
   updateHud();
   startTimer();
   audio.tap();
-  if (Math.max(rows, cols) > core.maxTargetFor(state.game.size)) {
-    // 4×4 の上限を超える設定は 36 に丸められる（HUD の合計で分かる）
-    toast(i18n.t('toast.cap', state.locale));
-  }
   scheduleIdleHint();
 }
 
@@ -745,6 +753,83 @@ function showHint({ silent = false } = {}) {
     audio.tap();
   }
   return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* ドラッグで2マス入れ替え                                              */
+/* ------------------------------------------------------------------ */
+
+/** 指の下にあるマスの番号（盤の外なら null） */
+function tileIndexAt(x, y) {
+  if (typeof document.elementFromPoint !== 'function') return null;
+  const node = document.elementFromPoint(x, y);
+  const tile = node && node.closest ? node.closest('#board .tile') : null;
+  return tile ? Number(tile.dataset.i) : null;
+}
+
+/** ドラッグ元と、いま指の下にあるマスを光らせる */
+function paintDrag() {
+  $$('#board .tile.is-drag-source, #board .tile.is-drop-target').forEach((node) => {
+    node.classList.remove('is-drag-source', 'is-drop-target');
+  });
+  const drag = state.drag;
+  if (!drag) return;
+  const from = tileNode(drag.from);
+  if (from) from.classList.add('is-drag-source');
+  if (drag.target !== null) {
+    const to = tileNode(drag.target);
+    if (to) to.classList.add('is-drop-target');
+  }
+}
+
+function onBoardPointerDown(event) {
+  const game = state.game;
+  if (!game || state.busy || game.status !== core.STATUS.playing) return;
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const tile = event.target.closest ? event.target.closest('.tile') : null;
+  if (!tile) return;
+  state.suppressClick = false;
+  state.drag = {
+    from: Number(tile.dataset.i),
+    target: null,
+    moved: false,
+    x: event.clientX,
+    y: event.clientY,
+  };
+}
+
+function onPointerMove(event) {
+  const drag = state.drag;
+  if (!drag) return;
+  if (!drag.moved) {
+    const distance = Math.hypot(event.clientX - drag.x, event.clientY - drag.y);
+    if (distance < DRAG_THRESHOLD) return;
+    drag.moved = true;
+    clearIdle();
+    clearHintTiles();
+    haptics.select();
+  }
+  const index = tileIndexAt(event.clientX, event.clientY);
+  drag.target = index !== null && index !== drag.from ? index : null;
+  paintDrag();
+}
+
+function onPointerUp(event, cancelled = false) {
+  const drag = state.drag;
+  if (!drag) return;
+  state.drag = null;
+  paintDrag();
+  if (!drag.moved) return;
+  // ドラッグのあとに飛んでくる click はタップとして扱わない
+  state.suppressClick = true;
+  setTimeout(() => {
+    state.suppressClick = false;
+  }, 400);
+  if (cancelled) return;
+  const game = state.game;
+  if (!game || game.mechanic !== core.MECHANIC.swap || state.busy) return;
+  if (drag.target === null) return;
+  doSwap(drag.from, drag.target);
 }
 
 async function onTileTap(index) {
@@ -1091,19 +1176,18 @@ function setTextSize(size) {
   audio.tap();
 }
 
-function changeTarget(axis, step) {
+function changeTarget(step) {
   if (!state.entitled) {
     openSheet('pro');
     return;
   }
-  const key = axis === 'col' ? 'colTarget' : 'rowTarget';
-  const next = Math.min(core.MAX_TARGET, Math.max(core.MIN_TARGET, state.settings[key] + step));
-  if (next === state.settings[key]) return;
-  state.settings = storage.updateSettings({ ...state.settings, [key]: next });
+  const next = Math.min(core.MAX_TARGET, Math.max(core.MIN_TARGET, state.settings.target + step));
+  if (next === state.settings.target) return;
+  state.settings = storage.updateSettings({ ...state.settings, target: next });
   updateRulesInfo();
   audio.tap();
   haptics.select();
-  toast(i18n.t('toast.target', state.locale, { row: state.settings.rowTarget, col: state.settings.colTarget }));
+  toast(i18n.t('toast.target', state.locale, { target: next }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -1118,6 +1202,44 @@ function resumeAudioEverywhere() {
   if (typeof document !== 'undefined' && document.hidden) return;
   audio.resume();
   if (state.game && state.game.timed) state.lastTick = performance.now();
+}
+
+/* ------------------------------------------------------------------ */
+/* オープニング（LINEZAP ロゴ＋黄金ラインがパチッと光る）              */
+/* ------------------------------------------------------------------ */
+
+function finishOpening() {
+  const node = $('#opening');
+  if (!node || !state.opening) return;
+  state.opening = false;
+  if (state.openingTimer) {
+    clearTimeout(state.openingTimer);
+    state.openingTimer = null;
+  }
+  node.classList.add('is-out');
+  setTimeout(() => {
+    node.hidden = true;
+    node.classList.remove('is-out');
+  }, 420);
+}
+
+function startOpening() {
+  const node = $('#opening');
+  if (!node) {
+    state.opening = false;
+    return;
+  }
+  node.hidden = false;
+  state.opening = true;
+  state.openingTimer = setTimeout(finishOpening, OPENING_MS);
+  // タップで即スキップ。ここが iOS で音を起こせる最初の操作でもある
+  node.addEventListener('pointerdown', () => {
+    if (!state.opening) return;
+    audio.unlock();
+    audio.zap();
+    if (state.settings.bgm) audio.setBgm(true);
+    finishOpening();
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1158,10 +1280,20 @@ function bind() {
   $('#btn-quit')?.addEventListener('click', goHome);
   $('#btn-home')?.addEventListener('click', goHome);
   $('#board')?.addEventListener('click', (event) => {
+    if (state.suppressClick) {
+      // ドラッグ直後の click を1回だけ捨てる（次のタップは普通に効く）
+      state.suppressClick = false;
+      return;
+    }
     const tile = event.target.closest('.tile');
     if (!tile) return;
     onTileTap(Number(tile.dataset.i));
   });
+  // ドラッグ（押したまま2マス目へ）でも入れ替える。タップ2回もそのまま使える
+  $('#board')?.addEventListener('pointerdown', onBoardPointerDown);
+  window.addEventListener('pointermove', onPointerMove, { passive: true });
+  window.addEventListener('pointerup', (event) => onPointerUp(event));
+  window.addEventListener('pointercancel', (event) => onPointerUp(event, true));
   $('#btn-settings-play')?.addEventListener('click', () => openSheet('settings'));
   $('#btn-hint')?.addEventListener('click', () => showHint());
   $('#btn-hint-foot')?.addEventListener('click', () => showHint());
@@ -1195,7 +1327,7 @@ function bind() {
   $('#set-target')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-step]');
     if (!button) return;
-    changeTarget(button.dataset.axis, Number(button.dataset.step));
+    changeTarget(Number(button.dataset.step));
   });
   $('#lang-grid')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-locale]');
@@ -1257,6 +1389,10 @@ function boot() {
   if (firstLaunch) {
     state.settings = storage.updateSettings({ ...state.settings, locale: state.locale });
   }
+  // Build 3: BGM の既定を一度だけ ON にする（以降はユーザーの OFF を尊重）
+  if (storage.needsBgmDefault()) {
+    state.settings = storage.updateSettings(state.settings);
+  }
   state.entitled = pro.initialEntitlement();
   haptics.setEnabled(state.settings.haptic);
 
@@ -1293,10 +1429,12 @@ function boot() {
     const once = () => audio.setBgm(true);
     window.addEventListener('pointerdown', once, { once: true });
   }
+  updateSwitches();
+  startOpening();
 
   // 検証用の小さな窓口（`?test=1` のときだけ）。配布ビルドでは存在しない。
   if (typeof location !== 'undefined' && /(\?|&)test=1\b/.test(location.search)) {
-    window.__flip10 = {
+    window.__linezap = {
       state,
       core,
       startGame,
@@ -1304,6 +1442,13 @@ function boot() {
       closeSheet,
       setEntitled,
       showHint,
+      skipOpening: finishOpening,
+      /** ヒント ON/OFF（スクリーンショットと検証用） */
+      setHint(on) {
+        state.settings = storage.updateSettings({ ...state.settings, hint: Boolean(on) });
+        updateSwitches();
+        if (state.game) renderSums(state.game);
+      },
       get game() {
         return state.game;
       },

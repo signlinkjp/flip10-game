@@ -1,14 +1,14 @@
 /**
- * FLIP 10 — ルールの単体テスト（node --test / Build 2）
+ * LINEZAP — ルールの単体テスト（node --test / Build 3）
  *
  * ここが固いことが「遊べる」の条件:
  *   - 好きな2マスを入れ替えられる（同じマスは選択解除・盤の外は無効）
- *   - 行と列の合計を別々に持てる（PRO の 9〜40）
+ *   - 消える合計は行も列も同じ1つ（4×4 は 10 固定 / 5×5・6×6 は 12〜42）
  *   - 行・列の合計が target で消える（交差も1回だけ）
  *   - 消えたら下詰め・上から新しいタイル・連鎖はコンボ
  *   - 手数ライフ（7から、1手 −1、1ライン +3 / 2ライン +5 / 3ライン以上か連鎖で満タン、0で終了）
  *   - 数字の範囲は target と盤面サイズから自動で決まる（0や9を出しすぎない）
- *   - 最初から消えていない・必ず1手ある盤面を作る
+ *   - 最初から消えていない・必ず1手ある盤面を作る（6×6 の 12〜42 も）
  *   - 十字フリップ（PRO 特別モード）は ＋の字が反転・表裏で5
  *   - タイムアタックは 0 秒で終了
  */
@@ -20,7 +20,7 @@ import * as core from '../src/core.js';
 /** 表示値からタイルを作る */
 const tile = (value) => core.tileWithValue(value);
 
-/** 4×4 を [行0, 行1, ...] の配列から作る（十字フリップは sides で裏向き） */
+/** 4×4 を [行0, 行1, ...] の配列から作る（十字フリップは back で裏向き） */
 function board4(rows, { back = [] } = {}) {
   const out = [];
   rows.forEach((row, r) => {
@@ -33,6 +33,13 @@ function board4(rows, { back = [] } = {}) {
     });
   });
   return out;
+}
+
+/** サイズと値の配列から盤面を作る */
+function boardOf(size, values) {
+  const rows = [];
+  for (let r = 0; r < size; r += 1) rows.push(values.slice(r * size, (r + 1) * size));
+  return rows;
 }
 
 const flat = (values) => values.map((value) => tile(value));
@@ -48,35 +55,85 @@ function sequenceRng(values, max = 9) {
 }
 
 function gameWith(rows, { mode = 'classic', moves = 7, target = 10, back = [] } = {}) {
-  const game = core.startGame({ mode, rowTarget: target, colTarget: target, rng: core.seededRng(1) });
+  const game = core.startGame({ mode, target, rng: core.seededRng(1) });
   return { ...game, board: board4(rows, { back }), moves: game.life ? moves : null };
 }
+
+/* ------------------------------------------------------------------ */
+/* モードと合計                                                        */
+/* ------------------------------------------------------------------ */
+
+test('5モード（6×6 が増えた）と、合計を使うのは 5×5 / 6×6 だけ', () => {
+  assert.deepEqual(
+    core.MODES.map((mode) => [mode.id, mode.size, mode.pro, mode.sized]),
+    [
+      ['classic', 4, false, false],
+      ['wide', 5, true, true],
+      ['wide6', 6, true, true],
+      ['cross', 4, true, false],
+      ['time', 4, true, false],
+    ],
+  );
+  assert.equal(core.MAX_SIZE, 6);
+  assert.equal(core.modeById('wide6').size, 6);
+});
+
+test('消える合計は 4×4 が 10 固定、5×5 / 6×6 が 12〜42', () => {
+  assert.equal(core.DEFAULT_TARGET, 10);
+  assert.equal(core.MIN_TARGET, 12);
+  assert.equal(core.MAX_TARGET, 42);
+  assert.equal(core.targetForMode('classic', 30), 10);
+  assert.equal(core.targetForMode('time', 30), 10);
+  assert.equal(core.targetForMode('cross', 30), 10);
+  assert.equal(core.targetForMode('wide', 20), 20);
+  assert.equal(core.targetForMode('wide6', 20), 20);
+  assert.equal(core.targetForMode('wide6', 5), 12, '下限は12');
+  assert.equal(core.targetForMode('wide6', 99), 42, '上限は42');
+  assert.equal(core.targetForMode('wide6', 'x'), core.DEFAULT_WIDE_TARGET);
+  // 行も列も同じ1つ
+  assert.deepEqual(core.targetPair(26, 6), { rows: 26, cols: 26 });
+  assert.deepEqual(core.targetPair(1, 5), { rows: 12, cols: 12 });
+  assert.deepEqual(core.targetPair(99, 6), { rows: 42, cols: 42 });
+  assert.equal(core.maxTargetFor(5), 42);
+  assert.equal(core.maxTargetFor(6), 42);
+});
+
+test('startGame は 4×4 に設定値を持ち込まず、5×5 / 6×6 にだけ効かせる', () => {
+  const classic = core.startGame({ mode: 'classic', target: 30, rng: core.seededRng(1) });
+  assert.deepEqual(classic.targets, { rows: 10, cols: 10 });
+  const wide = core.startGame({ mode: 'wide', target: 30, rng: core.seededRng(1) });
+  assert.deepEqual(wide.targets, { rows: 30, cols: 30 });
+  const wide6 = core.startGame({ mode: 'wide6', target: 12, rng: core.seededRng(1) });
+  assert.deepEqual(wide6.targets, { rows: 12, cols: 12 });
+  assert.equal(wide6.size, 6);
+  assert.equal(wide6.board.length, 36);
+  assert.equal(wide6.moves, 7);
+});
 
 /* ------------------------------------------------------------------ */
 /* 数字の範囲（スマートな出し方）                                      */
 /* ------------------------------------------------------------------ */
 
 test('数字の範囲は target と盤面サイズから決まる（低い target は小さく、高い target は大きく）', () => {
-  assert.deepEqual(core.digitPool(4, 9), { min: 0, max: 6 });
   assert.deepEqual(core.digitPool(4, 10), { min: 0, max: 6 });
-  assert.deepEqual(core.digitPool(4, 20), { min: 2, max: 8 });
-  assert.deepEqual(core.digitPool(4, 28), { min: 4, max: 9 });
-  assert.deepEqual(core.digitPool(4, 36), { min: 6, max: 9 });
-  assert.deepEqual(core.digitPool(5, 9), { min: 0, max: 5 });
-  assert.deepEqual(core.digitPool(5, 25), { min: 2, max: 8 });
-  assert.deepEqual(core.digitPool(5, 40), { min: 5, max: 9 });
+  assert.deepEqual(core.digitPool(5, 12), { min: 0, max: 6 });
+  assert.deepEqual(core.digitPool(5, 20), { min: 1, max: 7 });
+  assert.deepEqual(core.digitPool(5, 42), { min: 5, max: 9 });
+  assert.deepEqual(core.digitPool(6, 12), { min: 0, max: 5 });
+  assert.deepEqual(core.digitPool(6, 20), { min: 0, max: 7 });
+  assert.deepEqual(core.digitPool(6, 42), { min: 4, max: 9 });
   // どの target でも 0〜9 の外へは出ない
-  for (const size of [4, 5]) {
-    for (let target = 9; target <= 40; target += 1) {
+  for (const size of [4, 5, 6]) {
+    for (let target = 12; target <= 42; target += 1) {
       const pool = core.digitPool(size, target);
       assert.ok(pool.min >= 0 && pool.max <= 9 && pool.min <= pool.max, `${size}/${target}`);
       assert.ok(pool.max - pool.min >= 2, `${size}/${target} の幅が狭すぎる`);
     }
   }
   // target が上がるほど、出す数字も上がる（単調）
-  for (const size of [4, 5]) {
+  for (const size of [4, 5, 6]) {
     let previous = -1;
-    for (let target = 9; target <= 40; target += 1) {
+    for (let target = 12; target <= 42; target += 1) {
       const pool = core.digitPool(size, target);
       assert.ok(pool.min >= previous, `${size}/${target} の最小が下がった`);
       previous = pool.min;
@@ -84,24 +141,29 @@ test('数字の範囲は target と盤面サイズから決まる（低い targe
   }
 });
 
-test('target は 9〜40、4×4 だけは 36 まで', () => {
-  assert.equal(core.maxTargetFor(4), 36);
-  assert.equal(core.maxTargetFor(5), 40);
-  assert.deepEqual(core.targetPair(40, 40, 4), { rows: 36, cols: 36 });
-  assert.deepEqual(core.targetPair(40, 40, 5), { rows: 40, cols: 40 });
-  assert.deepEqual(core.targetPair(3, 99, 4), { rows: 9, cols: 36 });
-  assert.deepEqual(core.targetPair(12, 22, 4), { rows: 12, cols: 22 });
+test('出てくる数字は pool の中だけ・1マスの平均が target/size に近い（山なりの分布）', () => {
+  for (const size of [5, 6]) {
+    for (const target of [12, 20, 30, 42]) {
+      const pool = core.digitPool(size, target);
+      const board = core.makeBoard({ size, target: core.targetPair(target, size), rng: core.seededRng(size * 97 + target) });
+      const values = board.map(core.displayValue);
+      assert.ok(values.every((value) => value >= pool.min && value <= pool.max), `${size}/${target}`);
+      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+      assert.ok(Math.abs(average - target / size) < 1, `${size}/${target} の平均が目標から離れすぎ: ${average}`);
+    }
+  }
 });
 
 /* ------------------------------------------------------------------ */
 /* 盤面の生成                                                          */
 /* ------------------------------------------------------------------ */
 
-test('盤面は最初から消えておらず、必ず1手ある（9〜40 / 4×4・5×5）', () => {
-  for (const size of [4, 5]) {
-    for (let target = 9; target <= 40; target += 1) {
-      const t = core.targetPair(target, target, size);
-      const pool = core.digitPool(size, Math.round((t.rows + t.cols) / 2));
+test('盤面は最初から消えておらず、必ず1手ある（4×4 は 10 / 5×5・6×6 は 12〜42）', () => {
+  const cases = [[4, [10]], [5, [12, 18, 24, 30, 36, 42]], [6, [12, 18, 24, 30, 36, 42]]];
+  for (const [size, targets] of cases) {
+    for (const target of targets) {
+      const t = core.targetPair(target, size);
+      const pool = core.digitPool(size, t.rows);
       for (let seed = 1; seed <= 3; seed += 1) {
         const board = core.makeBoard({ size, target: t, rng: core.seededRng(seed * 131 + target) });
         assert.equal(board.length, size * size);
@@ -126,10 +188,11 @@ test('手が無くなった盤面は数字を混ぜ直す', () => {
   assert.equal(fixed.board.length, 16);
 });
 
-test('有効な手は本当に合計を target にする（全 target で確認）', () => {
-  for (const size of [4, 5]) {
-    for (const target of [9, 10, 14, 20, 25, 30, 35, 40]) {
-      const t = core.targetPair(target, target, size);
+test('有効な手は本当に合計を target にする（4×4・5×5・6×6）', () => {
+  const cases = [[4, [10]], [5, [12, 24, 42]], [6, [12, 24, 42]]];
+  for (const [size, targets] of cases) {
+    for (const target of targets) {
+      const t = core.targetPair(target, size);
       const board = core.makeBoard({ size, target: t, rng: core.seededRng(target + size * 7) });
       const hint = core.findPlayableSwap(board, size, t);
       assert.ok(hint, `${size}/${target} に手が無い`);
@@ -163,32 +226,47 @@ test('2マスを入れ替えると数字が交換され、元の盤面は変わ�
   assert.equal(core.swapBoard(board, 3, 99).swapped, null);
 });
 
-test('行と列は別々の合計で消える（PRO の行12 / 列14）', () => {
+test('行も列も同じ合計で消える（交差は1回だけ）', () => {
   const board = board4([
-    [3, 3, 3, 3],
-    [3, 3, 0, 0],
-    [4, 4, 0, 0],
-    [4, 4, 0, 0],
+    [3, 3, 4, 0],
+    [6, 1, 1, 3],
+    [5, 2, 2, 4],
+    [0, 0, 0, 3],
   ]);
-  const t = { rows: 12, cols: 14 };
-  const clears = core.findClears(board, 4, t);
-  assert.deepEqual(clears.rows.sort((a, b) => a - b), [0]);
-  assert.deepEqual(clears.cols.sort((a, b) => a - b), [0, 1]);
-  // 交差は1回だけ: 行0の4マス + 列0・1の下3マスずつ
-  assert.equal(clears.cells.length, 4 + 3 + 3);
+  const clears = core.findClears(board, 4, 10);
+  assert.deepEqual(clears.rows, [0]);
+  assert.deepEqual(clears.cols, [3]);
+  // 交差は1回だけ: 行0の4マス + 列3の残り3マス
+  assert.equal(clears.cells.length, 4 + 3);
 });
 
 test('合計が target の行だけが消える（列は別の合計）', () => {
   const board = board4([
     [1, 2, 3, 4],
-    [1, 1, 1, 1],
+    [1, 1, 5, 1],
     [2, 2, 3, 1],
     [0, 0, 5, 5],
   ]);
-  const clears = core.findClears(board, 4, { rows: 10, cols: 99 });
+  const clears = core.findClears(board, 4, 10);
   assert.deepEqual(clears.rows, [0, 3]);
   assert.deepEqual(clears.cols, []);
   assert.deepEqual(clears.cells, [0, 1, 2, 3, 12, 13, 14, 15]);
+});
+
+test('6×6 も行・列の合計で消える（目標 24）', () => {
+  const values = [
+    4, 4, 4, 4, 4, 4,
+    1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 2, 2,
+    3, 3, 3, 3, 3, 3,
+    5, 5, 5, 5, 5, 5,
+    0, 0, 0, 0, 0, 0,
+  ];
+  const board = boardOf(6, values).flat().map((value) => tile(value));
+  const clears = core.findClears(board, 6, 24);
+  assert.deepEqual(clears.rows, [0]);
+  assert.deepEqual(clears.cols, []);
+  assert.equal(clears.cells.length, 6);
 });
 
 test('落ちるときは下詰め・上から新しいタイル（順番を保つ）', () => {
@@ -285,6 +363,8 @@ test('手数は7から。1ライン +3 / 2ライン +5 / 3ライン以上か連�
   assert.equal(game.moves, 7);
   assert.equal(game.maxMoves, 7);
   assert.equal(game.life, true);
+  const wide6 = core.startGame({ mode: 'wide6', rng: core.seededRng(2) });
+  assert.equal(wide6.moves, 7);
 });
 
 test('入れ替えて消すと手数が減って回復する（1ライン: 7→6→7で上限）', () => {
@@ -324,7 +404,6 @@ test('消えない入れ替えは手数 −1、連鎖は0に戻る', () => {
 test('2ライン消すと +5、3ライン以上で満タン', () => {
   assert.equal(core.moveReward({ lines: 2, steps: 1 }), 5);
   assert.equal(core.moveReward({ lines: 4, steps: 1 }), 7);
-  // 2ライン同時消し: 行0と列3が両方 target になる盤面
   const game = gameWith([
     [3, 2, 4, 0],
     [1, 0, 0, 0],
@@ -347,7 +426,6 @@ test('手数が0になったらゲームオーバー（それ以上は動かな�
   assert.equal(result.game.moves, 0);
   assert.equal(result.game.status, core.STATUS.over);
   assert.equal(result.game.overReason, core.OVER_REASON.moves);
-  // 終了後は何も起きない
   const after = core.swapTiles(result.game, 2, 3, () => 0);
   assert.equal(after.swap, null);
   assert.equal(after.game.score, 0);
@@ -360,7 +438,6 @@ test('盤の外・同じマス・違う操作のタップは何も起きない',
   assert.equal(core.swapTiles(game, 0, 99).swap, null);
   assert.equal(core.swapTiles(game, 2, 2).swap, null);
   assert.equal(core.swapTiles(game, 1.5, 2).swap, null);
-  // 十字フリップのモードに swapTiles は効かない
   const cross = core.startGame({ mode: 'cross', rng: core.seededRng(5) });
   assert.equal(core.swapTiles(cross, 0, 1).swap, null);
 });
@@ -383,6 +460,7 @@ test('十字フリップ: ＋の字だけが反転し、表裏は足して5', ()
   assert.deepEqual(core.cross(4, 5), [5, 1, 4, 6, 9]);
   assert.deepEqual(core.cross(4, 0), [0, 1, 4]);
   assert.deepEqual(core.cross(5, 12), [12, 7, 11, 13, 17]);
+  assert.deepEqual(core.cross(6, 14), [14, 8, 13, 15, 20]);
   const board = Array.from({ length: 16 }, (_, i) => core.tileWithValue(i % 6, core.MECHANIC.flip));
   const { board: after, flipped } = core.flipBoard(board, 4, 5);
   assert.deepEqual(flipped, [5, 1, 4, 6, 9]);
@@ -402,9 +480,10 @@ test('十字フリップは 4×4・値は0〜5・最初から消えていない�
     assert.equal(game.size, 4);
     assert.equal(game.mechanic, core.MECHANIC.flip);
     assert.equal(game.board.length, 16);
+    assert.deepEqual(game.targets, { rows: 10, cols: 10 });
     assert.ok(game.board.every((item) => core.displayValue(item) <= 5));
-    assert.equal(core.findClears(game.board, 4, { rows: 10, cols: 10 }).cells.length, 0);
-    assert.ok(core.findFlipHint(game.board, 4, { rows: 10, cols: 10 }));
+    assert.equal(core.findClears(game.board, 4, 10).cells.length, 0);
+    assert.ok(core.findFlipHint(game.board, 4, 10));
   }
 });
 
@@ -422,22 +501,6 @@ test('十字フリップでもラインが消えて手数が回復する', () =>
   assert.ok(found.game.score > 0);
   assert.ok(found.game.moves >= 1);
   assert.equal(found.game.mechanic, core.MECHANIC.flip);
-});
-
-test('十字フリップのヒントは表向きの数字から探す', () => {
-  const board = board4([
-    [3, 2, 4, 0],
-    [1, 0, 0, 0],
-    [0, 0, 0, 0],
-    [0, 0, 0, 0],
-  ]);
-  // 十字フリップの盤面として作り直す（0 が5になる場所は避ける）
-  const flipBoard = board.map((item) => ({ front: core.displayValue(item), back: core.PAIR_SUM - core.displayValue(item), side: core.SIDES.front }));
-  const hint = core.findFlipHint(flipBoard, 4, 10);
-  if (hint) {
-    const after = core.flipBoard(flipBoard, 4, hint.index).board;
-    assert.ok(core.findClears(after, 4, 10).rows.length + core.findClears(after, 4, 10).cols.length > 0);
-  }
 });
 
 /* ------------------------------------------------------------------ */
@@ -472,9 +535,10 @@ test('時計の表示は 1:05', () => {
   assert.equal(core.formatClock(-5), '0:00');
 });
 
-test('ハイスコアのキーはモードごと、タイムは60/120で別', () => {
+test('ハイスコアのキーはモードごと、タイムは60/120で別（6×6 も別）', () => {
   assert.equal(core.gameKey('classic'), 'classic');
   assert.equal(core.gameKey('wide'), 'wide');
+  assert.equal(core.gameKey('wide6'), 'wide6');
   assert.equal(core.gameKey('cross'), 'cross');
   assert.equal(core.gameKey('time', 60), 'time60');
   assert.equal(core.gameKey('time', 120), 'time120');
@@ -503,7 +567,11 @@ test('合計に近いラインを教えられる', () => {
   assert.equal(nearest.gap, 4);
 });
 
-test('盤面を何度も遊んでも壊れない（200手）', () => {
+/* ------------------------------------------------------------------ */
+/* 通しで遊ぶ                                                          */
+/* ------------------------------------------------------------------ */
+
+test('盤面を何度も遊んでも壊れない（4×4 を200手）', () => {
   const rng = core.seededRng(21);
   let game = core.startGame({ mode: 'classic', rng });
   let clears = 0;
@@ -527,4 +595,26 @@ test('盤面を何度も遊んでも壊れない（200手）', () => {
   }
   assert.ok(swaps > 10);
   assert.ok(clears > 0);
+});
+
+test('6×6 は目標 12〜42 のどこでも詰まらずに遊べる', () => {
+  for (const target of [12, 14, 18, 22, 26, 30, 33, 36, 39, 42]) {
+    const rng = core.seededRng(target * 13 + 5);
+    let game = core.startGame({ mode: 'wide6', target, rng });
+    assert.deepEqual(game.targets, { rows: target, cols: target });
+    let moves = 0;
+    for (let step = 0; step < 15 && game.status === core.STATUS.playing; step += 1) {
+      const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
+      assert.ok(hint, `${target} の手 ${step} でヒントが無い`);
+      const result = core.swapTiles(game, hint.a, hint.b, rng);
+      assert.ok(result.swap, `${target} の手 ${step} が通らない`);
+      assert.ok(result.steps.length > 0, `${target} の手 ${step} が消えない`);
+      assert.equal(result.game.board.length, 36);
+      assert.ok(result.game.board.every((item) => core.displayValue(item) >= 0 && core.displayValue(item) <= 9));
+      game = result.game;
+      moves += 1;
+    }
+    assert.ok(moves >= 10, `${target} で ${moves} 手しか遊べない`);
+    assert.equal(game.status, core.STATUS.playing, `${target} で手数が尽きた`);
+  }
 });

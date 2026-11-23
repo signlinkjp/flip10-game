@@ -1,12 +1,13 @@
 /**
- * FLIP 10 — 効果音とBGM（Web Audio のシンセだけ。音声ファイルは持たない）
+ * LINEZAP — 効果音とBGM（Web Audio のシンセだけ。音声ファイルは持たない）
  *
  * 音はすべてその場で合成する:
  *   タップ      … 短い「コッ」
  *   反転        … カードがめくれる「パタッ」（ノイズ＋低いトーン）
  *   ライン消去  … 金色のチャイム。コンボが続くほど音程が上がる
  *   着地        … 新しいタイルが落ちてくる「トン」
- *   BGM         … 静かなアンビエント（既定OFF）
+ *   ザップ      … オープニングの「パチッ」（高いノイズ＋金の和音）
+ *   BGM         … 静かなアンビエント（Build 3 から既定ON）
  *
  * iOS でマナースイッチ（消音）が入っていても鳴るように、3つを組み合わせる:
  *   1. `navigator.audioSession.type = 'playback'`（iOS 16.4+ / Safari 17）
@@ -265,6 +266,17 @@ export function createAudioEngine({
     [SCALE.G4, SCALE.E4, SCALE.C4].forEach((freq, i) => tone(freq, { type: 'triangle', start: i * 0.12, decay: 0.42, peak: 0.18 }));
   }
 
+  /** オープニングの「パチッ」。短いノイズのスイープと金の和音 */
+  function zap() {
+    if (!ctx) return;
+    click({ peak: 0.26, freq: 5600, decay: 0.05 });
+    click({ peak: 0.18, freq: 2400, decay: 0.09 });
+    tone(SCALE.G5, { type: 'triangle', attack: 0.003, decay: 0.14, peak: 0.16 });
+    tone(SCALE.C6, { type: 'sine', start: 0.012, attack: 0.003, decay: 0.18, peak: 0.13 });
+    tone(SCALE.G6, { type: 'sine', start: 0.024, attack: 0.003, decay: 0.2, peak: 0.09 });
+    tone(SCALE.C4, { type: 'sine', start: 0.02, attack: 0.006, decay: 0.22, peak: 0.12 });
+  }
+
   /* ---------------- BGM ---------------- */
 
   function scheduleBgmBar(when) {
@@ -419,6 +431,7 @@ export function createAudioEngine({
     drop,
     record,
     over,
+    zap,
     /** 設定の効果音 ON/OFF（BGM は別） */
     setMuted(value) {
       isMuted = Boolean(value);

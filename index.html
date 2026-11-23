@@ -6,11 +6,11 @@
 <meta name="theme-color" content="#eef6ff" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="app-build" content="Build 2" />
-<meta name="description" content="FLIP 10 — swap two tiles, sum to 10, clear the line. A one-player puzzle." />
-<link rel="icon" href="assets/flip10-appicon-1024.png" />
-<link rel="apple-touch-icon" href="assets/flip10-appicon-1024.png" />
-<title>FLIP 10</title>
+<meta name="app-build" content="Build 3" />
+<meta name="description" content="LINEZAP — swap two tiles, match the target, clear the line. A one-player puzzle." />
+<link rel="icon" href="assets/linezap-appicon-1024.png" />
+<link rel="apple-touch-icon" href="assets/linezap-appicon-1024.png" />
+<title>LINEZAP</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -42,17 +42,32 @@
     <i class="ambient__grid"></i>
   </div>
 
+  <!-- ============================== OPENING ============================== -->
+  <div class="opening" id="opening" aria-hidden="true">
+    <div class="opening__stage">
+      <div class="opening__board" aria-hidden="true">
+        <b>1</b><b>2</b><b>3</b>
+        <b>5</b><b>6</b><b>7</b>
+        <b class="is-zap">1</b><b class="is-zap">4</b><b class="is-zap">3</b>
+      </div>
+      <i class="opening__zap" aria-hidden="true"></i>
+      <p class="opening__logo">LINE<span>ZAP</span></p>
+      <p class="opening__sub">SWAP &amp; ZAP</p>
+    </div>
+    <p class="opening__skip"><span data-i18n="opening.skip">タップでスタート</span></p>
+  </div>
+
   <!-- ================================ HOME ================================ -->
   <section class="screen screen--home is-active" id="screen-home">
     <header class="topbar">
       <div class="brand">
         <span class="brand__mark" aria-hidden="true">
-          <span class="mini mini--front">1</span>
-          <span class="mini mini--back">4</span>
+          <i></i><i></i><i></i><i class="is-gold"></i>
+          <b class="brand__spark"></b>
         </span>
         <span class="brand__text">
-          <span class="brand__name">FLIP 10</span>
-          <span class="brand__sub">SWAP &amp; SUM</span>
+          <span class="brand__name">LINEZAP</span>
+          <span class="brand__sub">SWAP &amp; ZAP</span>
         </span>
       </div>
       <div class="topbar__actions">
@@ -67,8 +82,8 @@
 
     <div class="hero">
       <div class="hero__demo" id="hero-demo" aria-hidden="true"></div>
-      <h1 class="hero__logo">FLIP <span>10</span></h1>
-      <p class="hero__tagline" data-i18n="app.tagline">2マスを入れ替えて、合計10で消す</p>
+      <h1 class="hero__logo">LINE<span>ZAP</span></h1>
+      <p class="hero__tagline" data-i18n="app.tagline">2マスを入れ替えて、合計をそろえて消す</p>
 
       <button class="btn-play" id="btn-play" type="button">
         <span class="btn-play__label" data-i18n="home.play">あそぶ</span>
@@ -81,8 +96,6 @@
         <strong id="home-best">0</strong>
       </div>
     </div>
-
-    <div class="legend legend--home" id="legend-home" aria-hidden="true"></div>
 
     <div class="modes" id="mode-list"></div>
 
@@ -127,15 +140,15 @@
 
     <div class="board-area">
       <div class="board-wrap" id="board-wrap">
-        <div class="board" id="board" role="group" aria-label="FLIP 10 board"></div>
+        <div class="board" id="board" role="group" aria-label="LINEZAP board"></div>
         <div class="sums sums--rows" id="sums-rows" aria-hidden="true"></div>
         <div class="sums sums--cols" id="sums-cols" aria-hidden="true"></div>
         <div class="board__fx" id="fx" aria-hidden="true"></div>
         <div class="timerbar" id="timerbar" hidden><i id="timerbar-fill"></i></div>
       </div>
       <div class="targetbar" id="targetbar">
-        <span class="targetbar__key" data-i18n="hud.target">合計</span>
-        <b id="target-text">行 10 / 列 10</b>
+        <span class="targetbar__key" data-i18n="settings.targetKey">目標</span>
+        <b id="target-text">10</b>
       </div>
       <div class="playlegend" id="play-legend" aria-hidden="true" hidden></div>
       <div class="combo" id="combo" role="status" aria-live="polite">
@@ -169,7 +182,7 @@
       <header class="sheet__head">
         <div>
           <h2 id="howto-title" data-i18n="howto.title">あそびかた</h2>
-          <p data-i18n="howto.sub">2マス入れ替えて、合計10で消すパズル</p>
+          <p data-i18n="howto.sub">2マス入れ替えて、合計をそろえて消すパズル</p>
         </div>
         <button class="icon-btn icon-btn--ghost" type="button" data-close-sheet data-i18n-aria="common.close" aria-label="閉じる">
           <svg><use href="#i-close"></use></svg>
@@ -178,7 +191,7 @@
       <div class="sheet__body howto">
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">1</span><span data-i18n="howto.1.t">2マスをタップで入れ替え</span></h3>
+            <h3><span class="howto__num">1</span><span data-i18n="howto.1.t">ドラッグで2マスを入れ替え</span></h3>
             <p data-i18n="howto.1.b"></p>
           </div>
           <div class="diag diag--swap" aria-hidden="true">
@@ -190,21 +203,21 @@
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">2</span><span data-i18n="howto.2.t">合計は右と下にいつでも表示</span></h3>
+            <h3><span class="howto__num">2</span><span data-i18n="howto.2.t">合計は右と下に「今/目標」</span></h3>
             <p data-i18n="howto.2.b"></p>
           </div>
           <div class="diag diag--sums" aria-hidden="true">
             <div class="diag__grid">
               <b>2</b><b>4</b><b>1</b><b>3</b>
             </div>
-            <span class="diag__sum diag__sum--row">10</span>
-            <span class="diag__sum diag__sum--col">12</span>
+            <span class="diag__sum diag__sum--row">10/10</span>
+            <span class="diag__sum diag__sum--col">11/10</span>
           </div>
         </article>
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">3</span><span data-i18n="howto.3.t">合計が10でラインが消える</span></h3>
+            <h3><span class="howto__num">3</span><span data-i18n="howto.3.t">合計が目標とぴったりで消える</span></h3>
             <p data-i18n="howto.3.b"></p>
           </div>
           <div class="diag diag--line" aria-hidden="true">
@@ -226,7 +239,7 @@
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">5</span><span data-i18n="howto.5.t">PRO：十字フリップと合計9〜40</span></h3>
+            <h3><span class="howto__num">5</span><span data-i18n="howto.5.t">PRO：十字フリップと6×6</span></h3>
             <p data-i18n="howto.5.b"></p>
           </div>
           <div class="diag diag--cross" aria-hidden="true">
@@ -283,20 +296,14 @@
           <span><span data-i18n="settings.target">消える合計（PRO）</span> <b class="tag-pro">PRO</b></span>
           <div class="steppers">
             <div class="stepper">
-              <span class="stepper__key" data-i18n="settings.targetRow">行</span>
-              <button type="button" data-axis="row" data-step="-1" aria-label="−">−</button>
-              <b id="set-row-target">10</b>
-              <button type="button" data-axis="row" data-step="1" aria-label="+">+</button>
-            </div>
-            <div class="stepper">
-              <span class="stepper__key" data-i18n="settings.targetCol">列</span>
-              <button type="button" data-axis="col" data-step="-1" aria-label="−">−</button>
-              <b id="set-col-target">10</b>
-              <button type="button" data-axis="col" data-step="1" aria-label="+">+</button>
+              <span class="stepper__key" data-i18n="settings.targetKey">目標</span>
+              <button type="button" data-step="-1" aria-label="−">−</button>
+              <b id="set-target-value">20</b>
+              <button type="button" data-step="1" aria-label="+">+</button>
             </div>
           </div>
-          <small data-i18n="settings.targetNote">PROの設定です。行と列を別々に9〜40で選べます。</small>
-          <small class="set-note" data-i18n="settings.targetCap">4×4の盤面は最大36（9×4）です。</small>
+          <small data-i18n="settings.targetNote">PROの設定です。5×5・6×6は行も列もこの1つの合計で消えます（12〜42）。次のゲームから適用されます。</small>
+          <small class="set-note" data-i18n="settings.targetFixed">4×4は10固定です。5×5・6×6で使います。</small>
         </div>
         <button class="set-row set-row--link" id="set-language" type="button">
           <span data-i18n="settings.language">言語</span>
@@ -354,7 +361,7 @@
     <section class="sheet sheet--pro" id="sheet-pro" data-sheet="pro" hidden role="dialog" aria-modal="true" aria-labelledby="pro-title">
       <header class="sheet__head">
         <div>
-          <h2 id="pro-title" data-i18n="pro.title">FLIP 10 PRO</h2>
+          <h2 id="pro-title" data-i18n="pro.title">LINEZAP PRO</h2>
           <p data-i18n="pro.sub">買い切り。ずっと使えます。</p>
         </div>
         <button class="icon-btn icon-btn--ghost" type="button" data-close-sheet data-i18n-aria="common.close" aria-label="閉じる">

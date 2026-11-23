@@ -1,5 +1,5 @@
 /**
- * FLIP 10 — PRO（買い切り）の解錠
+ * LINEZAP — PRO（買い切り）の解錠
  *
  * 商品は非消耗型1つ `jp.signlink.Flip10.pro`。StoreKit 2 の答えだけが正で、
  * サーバーとは話さない。最後に分かった答えを端末に覚えておき、圏外でも PRO を保つ。
@@ -15,6 +15,7 @@ import { LOCALES } from './i18n.js';
 
 export const PRODUCT_ID = 'jp.signlink.Flip10.pro';
 export const PLUGIN_NAME = 'StoreKit';
+// キー名は FLIP 10 時代のまま（購入の記憶を失わないため）
 export const STORE_KEY = 'flip10.pro.v1';
 /** 開発確認用スイッチ（preview のときだけ意味を持つ。端末の localStorage に残る） */
 export const PREVIEW_KEY = 'flip10.pro.preview.v1';

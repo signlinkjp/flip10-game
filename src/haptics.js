@@ -1,5 +1,5 @@
 /**
- * FLIP 10 — バイブ（iOS の Haptics）
+ * LINEZAP — バイブ（iOS の Haptics）
  *
  * iPhone の Taptic Engine を鳴らす。Capacitor のプラグインは増やさず、
  * AppDelegate.swift の `FlipHapticsPlugin`（jsName `FlipHaptics`）を呼ぶ。

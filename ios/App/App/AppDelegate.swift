@@ -4,7 +4,7 @@ import Foundation
 import StoreKit
 import AVFoundation
 
-/* FLIP 10 — アプリの入口（Build 1）
+/* LINEZAP — アプリの入口（Build 1）
  *
  * `npx cap add ios` が作る AppDelegate を置き換える。中身は3つ:
  *
@@ -41,7 +41,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             try session.setActive(true)
         } catch {
             // 音が出せなくてもゲームは続けられる（落とさない）
-            NSLog("FLIP 10: AVAudioSession setup failed: \(error)")
+            NSLog("LINEZAP: AVAudioSession setup failed: \(error)")
         }
     }
 
@@ -75,7 +75,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             guard let view = bridgeViewController else { return }
             view.bridge?.webView?.evaluateJavaScript(script) { _, error in
                 if let error = error {
-                    NSLog("FLIP 10: web audio hook failed: \(error.localizedDescription)")
+                    NSLog("LINEZAP: web audio hook failed: \(error.localizedDescription)")
                 }
             }
         }
@@ -88,7 +88,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
         } catch {
-            NSLog("FLIP 10: AVAudioSession deactivate failed: \(error)")
+            NSLog("LINEZAP: AVAudioSession deactivate failed: \(error)")
         }
     }
 
@@ -148,7 +148,7 @@ public class FlipAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
-/* FLIP 10 — バイブ（Haptics）のブリッジ。
+/* LINEZAP — バイブ（Haptics）のブリッジ。
 
    Capacitor の外部パッケージは足さず、UIKit の Taptic Engine を直接呼ぶ。
    www/src/haptics.js の `haptic({ kind })` が light / medium / heavy /
@@ -187,7 +187,7 @@ public class FlipHapticsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
-/* FLIP 10 PRO（買い切り）の StoreKit 2 ブリッジ。
+/* LINEZAP PRO（買い切り）の StoreKit 2 ブリッジ。
    非消耗型の1アイテム。ここは Apple が言ったことだけを返し、
    画面の判断は www/src/pro.js が持つ。
 
