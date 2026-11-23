@@ -1,10 +1,10 @@
 /**
- * LINEZAP — 画面と操作（Build 4）
+ * LINEZAP — 画面と操作（Build 5）
  *
  * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、
  * バイブは src/haptics.js、課金は src/pro.js、記録は src/storage.js。
- * ここは「オープニングを出す・開始前ページでマス数と目標を選ぶ・盤面を描く・
- * ドラッグ/タップを受ける・シートを開く・手数と制限時間を回す」だけを持つ。
+ * ここは「オープニングを出す・開始前ページでモード/マス数/目標（タイムアタックは時間）を選ぶ・
+ * 盤面を描く・ドラッグ/タップを受ける・シートを開く・手数と制限時間を回す」だけを持つ。
  *
  * 1回の入れ替えで core.swapTiles() が「入れ替え → 消えるライン → 落ちてくる盤面 →
  * 手数の回復と制限時間のリセット → ゲームオーバー」を全部計算して返すので、
@@ -60,8 +60,8 @@ const state = {
   drag: null,
   /** ドラッグ直後の click をタップとして扱わない */
   suppressClick: false,
-  /** 開始前ページ（マス数と目標）の選択 */
-  start: { mode: 'classic', size: 4, target: 10 },
+  /** 開始前ページ（マス数・目標・タイムアタックの時間）の選択 */
+  start: { mode: 'classic', size: 4, target: 10, timeLimit: 60 },
 };
 
 const audio = createAudioEngine({
@@ -101,16 +101,6 @@ function icon(id) {
 /* 言語の反映                                                          */
 /* ------------------------------------------------------------------ */
 
-function pairMarkup({ front, back }) {
-  return `<span class="legend__item"><b class="legend__tile legend__tile--front">${front}</b><i class="legend__arrow">↔</i><b class="legend__tile legend__tile--back">${back}</b></span>`;
-}
-
-function buildLegend(node) {
-  if (!node) return;
-  const pairs = core.pairLegend();
-  node.innerHTML = `<span class="legend__title">${i18n.t('howto.legend', state.locale)}</span>${pairs.map(pairMarkup).join('')}`;
-}
-
 function refreshTexts() {
   document.documentElement.setAttribute('lang', i18n.localeMeta(state.locale).tag);
   applyTextSize();
@@ -123,7 +113,6 @@ function refreshTexts() {
   const setLangLabel = $('#set-language-label');
   if (setLangLabel) setLangLabel.textContent = label;
 
-  buildLegend($('#legend-howto'));
   buildModes();
   buildLangGrid();
   updateSwitches();
@@ -132,7 +121,7 @@ function refreshTexts() {
   buildPrivacy();
   updateVersion();
   updateHomeBest();
-  if (state.game) updatePlayLegend();
+  if (state.game) renderSums(state.game);
 }
 
 function applyTextSize() {
@@ -199,85 +188,113 @@ function buildModes() {
   if (!box) return;
   box.innerHTML = '';
   for (const config of core.MODES) {
-    const locked = !pro.canPlayMode(state.entitled, config.id, config.sizes[0]);
-    const proSizes = config.pro ? [] : config.proSizes;
     const card = document.createElement('div');
-    card.className = `mode mode--${config.id}${locked ? ' is-locked' : ''}`;
+    card.className = `mode mode--${config.id}`;
     card.dataset.mode = config.id;
     card.innerHTML = `
       <button class="mode__main" type="button" data-mode="${config.id}">
         <span class="mode__head">
           <span class="mode__name">${i18n.t(`mode.${config.id}`, state.locale)}</span>
-          ${locked ? `<span class="mode__badge" title="${i18n.t('mode.locked', state.locale)}">${icon('lock')}<b class="mode__badge-text">${i18n.t('home.pro', state.locale)}</b></span>` : ''}
         </span>
         <span class="mode__desc">${i18n.t(`mode.${config.id}.desc`, state.locale)}</span>
-        ${config.pro ? '' : `<span class="mode__sizes" aria-hidden="true">${proSizes
-          .map((size) => `<b>${state.entitled ? '' : icon('lock')}${size}×${size}<i>PRO</i></b>`)
-          .join('')}</span>`}
-        ${config.id === 'cross' ? `<span class="mode__pairs" aria-hidden="true">${core
-          .pairLegend()
-          .map((pair) => `<b>${pair.front}<i>↔</i>${pair.back}</b>`)
-          .join('')}</span>` : ''}
+        <span class="mode__sizes" aria-hidden="true">${core.SIZES
+          .map((size) => {
+            const pro = core.needsProSize(config.id, size);
+            const lock = pro && !state.entitled ? icon('lock') : '';
+            return `<b>${lock}${size}×${size}${pro ? '<i>PRO</i>' : ''}</b>`;
+          })
+          .join('')}</span>
       </button>
-      ${config.timed ? `<div class="mode__chips">
-        <button type="button" data-time="60">60</button>
-        <button type="button" data-time="120">120</button>
-      </div>` : ''}
     `;
     box.appendChild(card);
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* 開始前ページ（マス数と目標）                                        */
+/* 開始前ページ（マス数・目標・タイムアタックの時間）                  */
 /* ------------------------------------------------------------------ */
 
 /** 開始前ページで最後に選んだマス数（モードごとに覚える） */
-const startMemory = { classic: core.FREE_SIZE, cross: core.FREE_SIZE, time: core.FREE_SIZE };
+const startMemory = { classic: core.FREE_SIZE, time: core.FREE_SIZE };
+/** タイムアタックで最後に選んだ時間（秒） */
+let startTimeMemory = core.FREE_TIME_LIMIT;
 
 function startTargetFor(modeId, size) {
   return storage.targetFor(state.settings, modeId, size);
 }
 
-/** 開始前ページを開く（クラシック / 十字フリップ） */
+/** 開始前ページを開く（クラシック / タイムアタック） */
 function openStart(modeId) {
   const mode = core.modeById(modeId);
-  if (mode.timed) {
-    startGame(mode.id, { timeLimit: mode.timeLimit });
-    return;
-  }
-  if (!pro.canPlayMode(state.entitled, mode.id, mode.sizes[0])) {
-    openSheet('pro');
-    return;
-  }
   state.start.mode = mode.id;
-  const remembered = startMemory[mode.id];
-  state.start.size = mode.sizes.includes(remembered) ? remembered : mode.sizes[0];
+  // 覚えている選択が PRO のものだった場合、PRO でなければ無料の組み合わせに戻す
+  const remembered = startMemory[mode.id] ?? mode.sizes[0];
+  const usable = mode.sizes.includes(remembered) && (!core.needsProSize(mode.id, remembered) || state.entitled);
+  state.start.size = usable ? remembered : mode.sizes.find((value) => !core.needsProSize(mode.id, value)) ?? mode.sizes[0];
+  const rememberedTime = core.normalizeTimeLimit(startTimeMemory, mode.freeTimeLimit ?? core.FREE_TIME_LIMIT);
+  const timeUsable = !mode.timed || state.entitled || !core.needsProTime(mode.id, rememberedTime);
+  state.start.timeLimit = timeUsable ? rememberedTime : mode.freeTimeLimit ?? core.FREE_TIME_LIMIT;
   state.start.target = startTargetFor(mode.id, state.start.size);
   renderStart();
   openSheet('start');
 }
 
+/** 開始前ページの表示をすべて今の選択に合わせる */
 function renderStart() {
   const mode = core.modeById(state.start.mode);
   const size = state.start.size;
-  const bounds = core.targetBounds(size, mode.mechanic);
+  const timed = Boolean(mode.timed);
+  const timeLimit = core.normalizeTimeLimit(state.start.timeLimit, mode.freeTimeLimit ?? core.FREE_TIME_LIMIT);
+  const bounds = core.targetBounds(size);
   const rules = core.sizeRule(size);
   const title = $('#start-title');
   if (title) title.textContent = i18n.t(`mode.${mode.id}`, state.locale);
 
+  // マス数ボタン（基準目標を中に入れ、PRO のサイズには鍵と PRO を出す）
   $$('#start-sizes .size-btn').forEach((button) => {
     const value = Number(button.dataset.size);
     const needs = core.needsProSize(mode.id, value);
+    const locked = needs && !state.entitled;
     button.classList.toggle('is-on', value === size);
-    button.classList.toggle('is-locked', needs && !state.entitled);
+    button.classList.toggle('is-locked', locked);
     button.classList.toggle('is-owned', needs && state.entitled);
     button.setAttribute('aria-pressed', value === size ? 'true' : 'false');
-    // 十字フリップはモード全体が PRO なので、4×4 に「無料」とは書かない
-    const free = button.querySelector('small:not(.size-btn__pro)');
-    if (free) free.hidden = mode.pro;
+    const base = button.querySelector('.size-btn__base');
+    if (base) base.textContent = i18n.t('start.base', state.locale, { target: core.baseTargetFor(value) });
+    const tag = button.querySelector('.size-btn__tag');
+    if (tag) {
+      // クラシックの 4×4 は「無料」、それ以外は PRO（タイムアタックの時間は下のチップで示す）
+      tag.className = needs ? 'size-btn__tag size-btn__tag--pro' : 'size-btn__tag';
+      tag.innerHTML = needs
+        ? `${locked ? icon('lock') : ''}<span>${i18n.t('home.pro', state.locale)}</span>`
+        : `${i18n.t('start.free', state.locale)}`;
+    }
   });
 
+  // タイムアタックの時間（60秒は無料、120秒・180秒は PRO）
+  const times = $('#start-times');
+  if (times) times.hidden = !timed;
+  if (timed) {
+    $$('#start-chips .time-btn').forEach((button) => {
+      const value = core.normalizeTimeLimit(Number(button.dataset.time));
+      const locked = core.needsProTime(mode.id, value) && !state.entitled;
+      const proTime = core.needsProTime(mode.id, value);
+      button.classList.toggle('is-on', value === timeLimit);
+      button.classList.toggle('is-locked', locked);
+      button.setAttribute('aria-pressed', value === timeLimit ? 'true' : 'false');
+      const label = button.querySelector('b');
+      if (label) label.textContent = i18n.t('start.seconds', state.locale, { n: value });
+      const tag = button.querySelector('.time-btn__tag');
+      if (tag) {
+        tag.className = proTime ? 'time-btn__tag time-btn__tag--pro' : 'time-btn__tag';
+        tag.innerHTML = proTime
+          ? `${locked ? icon('lock') : ''}<span>${i18n.t('home.pro', state.locale)}</span>`
+          : `${i18n.t('start.free', state.locale)}`;
+      }
+    });
+  }
+
+  // 目標（4×4 は 10 固定、5×5 は基準18、6×6 は基準24 から 12〜42）
   const value = $('#start-target-value');
   if (value) value.textContent = String(state.start.target);
   $$('#sheet-start [data-target-step]').forEach((button) => {
@@ -287,26 +304,61 @@ function renderStart() {
   if (note) {
     note.textContent = bounds.fixed
       ? i18n.t('start.fixed', state.locale, { target: state.start.target })
-      : i18n.t('start.range', state.locale, { min: bounds.min, max: bounds.max });
+      : i18n.t('start.range', state.locale, { min: bounds.min, max: bounds.max, base: core.baseTargetFor(size) });
   }
+
+  // 手数と制限時間（タイムアタックは手数が無く、全体の時間だけ）
+  const movesWrap = $('#start-moves-wrap');
+  if (movesWrap) movesWrap.hidden = timed;
   const moves = $('#start-moves');
   if (moves) moves.textContent = String(rules.moves);
   const turn = $('#start-turn');
-  if (turn) turn.textContent = i18n.t('start.seconds', state.locale, { n: rules.turnSeconds });
+  if (turn) {
+    turn.textContent = i18n.t('start.seconds', state.locale, {
+      n: timed ? timeLimit : rules.turnSeconds,
+    });
+  }
   const sub = $('#start-play-sub');
-  if (sub) sub.textContent = `${size}×${size} · ${state.start.target}`;
+  if (sub) {
+    sub.textContent = timed
+      ? `${size}×${size} · ${state.start.target} · ${i18n.t('start.seconds', state.locale, { n: timeLimit })}`
+      : `${size}×${size} · ${state.start.target}`;
+  }
   updateStartLocks();
 }
 
-/** 選べないサイズ（PRO 未購入の 5×5 / 6×6）を選んだら購入画面へ */
+/** 選べない組み合わせ（PRO 未購入の 5×5 / 6×6・120秒 / 180秒）に鍵を出す */
 function updateStartLocks() {
   const mode = core.modeById(state.start.mode);
+  const limit = core.normalizeTimeLimit(state.start.timeLimit, mode.freeTimeLimit ?? core.FREE_TIME_LIMIT);
   $$('#start-sizes .size-btn').forEach((button) => {
     const value = Number(button.dataset.size);
     const needs = core.needsProSize(mode.id, value);
     button.classList.toggle('is-locked', needs && !state.entitled);
     button.classList.toggle('is-owned', needs && state.entitled);
+    const tag = button.querySelector('.size-btn__tag');
+    if (tag && needs) {
+      const locked = needs && !state.entitled;
+      tag.className = 'size-btn__tag size-btn__tag--pro';
+      tag.innerHTML = `${locked ? icon('lock') : ''}<span>${i18n.t('home.pro', state.locale)}</span>`;
+    }
   });
+  $$('#start-chips .time-btn').forEach((button) => {
+    const value = core.normalizeTimeLimit(Number(button.dataset.time));
+    const proTime = core.needsProTime(mode.id, value);
+    const locked = proTime && !state.entitled;
+    button.classList.toggle('is-locked', locked);
+    const tag = button.querySelector('.time-btn__tag');
+    if (tag && proTime) {
+      tag.className = 'time-btn__tag time-btn__tag--pro';
+      tag.innerHTML = `${locked ? icon('lock') : ''}<span>${i18n.t('home.pro', state.locale)}</span>`;
+    }
+  });
+  const start = $('#btn-start');
+  if (start) {
+    const blocked = !pro.canPlayMode(state.entitled, mode.id, state.start.size, mode.timed ? limit : undefined);
+    start.classList.toggle('is-locked', blocked);
+  }
 }
 
 function pickStartSize(value) {
@@ -319,15 +371,32 @@ function pickStartSize(value) {
   audio.tap();
   haptics.select();
   state.start.size = value;
+  // サイズを切り替えたら、そのサイズの値（まだ選んでいなければ基準目標 10 / 18 / 24）を入れる
   state.start.target = startTargetFor(mode.id, value);
   startMemory[mode.id] = value;
+  renderStart();
+}
+
+/** タイムアタックの時間を選ぶ（60秒は無料、120秒・180秒は PRO） */
+function pickStartTime(value) {
+  const mode = core.modeById(state.start.mode);
+  if (!mode.timed) return;
+  const limit = core.normalizeTimeLimit(value, mode.freeTimeLimit ?? core.FREE_TIME_LIMIT);
+  if (core.needsProTime(mode.id, limit) && !state.entitled) {
+    openSheet('pro');
+    return;
+  }
+  audio.tap();
+  haptics.select();
+  state.start.timeLimit = limit;
+  startTimeMemory = limit;
   renderStart();
 }
 
 function stepStartTarget(step) {
   const mode = core.modeById(state.start.mode);
   const size = state.start.size;
-  const bounds = core.targetBounds(size, mode.mechanic);
+  const bounds = core.targetBounds(size);
   if (bounds.fixed) return;
   const next = Math.min(bounds.max, Math.max(bounds.min, state.start.target + step));
   if (next === state.start.target) return;
@@ -385,26 +454,6 @@ function buildHomeDemo() {
     tile.textContent = String(value);
     box.appendChild(tile);
   });
-}
-
-function updatePlayLegend() {
-  const node = $('#play-legend');
-  const target = $('#targetbar');
-  const targetText = $('#target-text');
-  const game = state.game;
-  if (game && targetText) {
-    targetText.textContent = String(game.targets.rows);
-  }
-  if (target) target.hidden = Boolean(game && game.mechanic === core.MECHANIC.flip);
-  if (!node) return;
-  if (!game || game.mechanic !== core.MECHANIC.flip) {
-    node.hidden = true;
-    node.innerHTML = '';
-    return;
-  }
-  const pairs = core.pairLegend();
-  node.hidden = false;
-  node.innerHTML = `<span class="legend__title">${i18n.t('howto.legend', state.locale)}</span>${pairs.map(pairMarkup).join('')}`;
 }
 
 function updateHomeBest() {
@@ -471,7 +520,6 @@ function paintTile(node, tile) {
   const text = node.querySelector('.tile__value');
   if (text) text.textContent = String(value);
   node.dataset.v = String(value);
-  node.classList.toggle('is-back', tile.side === core.SIDES.back);
   node.setAttribute('aria-label', String(value));
 }
 
@@ -774,7 +822,8 @@ function saveBest() {
 function startGame(modeId, { size, target, timeLimit } = {}) {
   const mode = core.modeById(modeId);
   const boardSize = mode.sizes.includes(Number(size)) ? Number(size) : mode.sizes[0];
-  if (!pro.canPlayMode(state.entitled, mode.id, boardSize)) {
+  const limit = mode.timed ? core.normalizeTimeLimit(timeLimit ?? state.start.timeLimit, mode.timeLimit) : undefined;
+  if (!pro.canPlayMode(state.entitled, mode.id, boardSize, limit)) {
     openSheet('pro');
     return;
   }
@@ -786,14 +835,20 @@ function startGame(modeId, { size, target, timeLimit } = {}) {
     mode: mode.id,
     size: boardSize,
     target: chosen,
-    timeLimit,
+    timeLimit: limit,
   });
-  // 次に開いたときに同じ目標で始められるよう、選んだ値を覚えておく
-  if (!core.targetBounds(boardSize, mode.mechanic).fixed) {
+  // 次に開いたときに同じ目標・時間で始められるよう、選んだ値を覚えておく
+  if (!core.targetBounds(boardSize).fixed) {
     state.settings = storage.rememberTarget(state.settings, mode.id, boardSize, state.game.targets.rows);
   }
-  state.start = { mode: mode.id, size: boardSize, target: state.game.targets.rows };
+  state.start = {
+    mode: mode.id,
+    size: boardSize,
+    target: state.game.targets.rows,
+    timeLimit: state.game.timed ? state.game.timeLimit : core.FREE_TIME_LIMIT,
+  };
   startMemory[mode.id] = boardSize;
+  if (state.game.timed) startTimeMemory = state.game.timeLimit;
   state.shownScore = 0;
   state.busy = false;
   state.selected = null;
@@ -805,7 +860,6 @@ function startGame(modeId, { size, target, timeLimit } = {}) {
   clearFlash();
   clearHintTiles();
   buildBoard(state.game);
-  updatePlayLegend();
   showScreen('play');
   updateHud();
   startTimer();
@@ -919,12 +973,12 @@ function showHint({ silent = false } = {}) {
     return false;
   }
   clearHintTiles();
-  const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
+  const hint = core.findHint(game.board, game.size, game.targets);
   if (!hint) {
     renderSums(game);
     return false;
   }
-  const indices = hint.mechanic === core.MECHANIC.flip ? [hint.index] : [hint.a, hint.b];
+  const indices = [hint.a, hint.b];
   for (const index of indices) {
     const node = tileNode(index);
     if (node) node.classList.add('is-hint');
@@ -1017,7 +1071,7 @@ function onPointerUp(event, cancelled = false) {
   }, 400);
   if (cancelled) return;
   const game = state.game;
-  if (!game || game.mechanic !== core.MECHANIC.swap || state.busy) return;
+  if (!game || state.busy) return;
   if (drag.target === null) return;
   doSwap(drag.from, drag.target);
 }
@@ -1030,11 +1084,6 @@ async function onTileTap(index) {
   audio.unlock();
   clearIdle();
   clearHintTiles();
-
-  if (game.mechanic === core.MECHANIC.flip) {
-    await doFlip(index);
-    return;
-  }
 
   if (state.selected === null) {
     state.selected = index;
@@ -1108,44 +1157,6 @@ async function doSwap(a, b) {
   applyFinalGame(result.game);
   state.shownScore = state.game.score;
   state.selected = null;
-  state.busy = false;
-  paintBoard(state.game);
-  updateHud({
-    gained: Math.max(0, result.reward),
-    lost: state.lastMoves !== null ? Math.max(0, state.lastMoves - state.game.moves) : 0,
-  });
-  afterMove(result);
-}
-
-async function doFlip(index) {
-  state.busy = true;
-  state.lastMoves = state.game.moves;
-  haptics.swap();
-  audio.flip();
-
-  const result = core.flipAt(state.game, index, Math.random);
-  if (!result.flip) {
-    state.busy = false;
-    return;
-  }
-
-  const nodes = result.flip.flipped;
-  for (const i of nodes) {
-    const node = tileNode(i);
-    if (!node) continue;
-    node.classList.remove('is-flipping');
-    void node.offsetWidth;
-    node.classList.add('is-flipping');
-    setTimeout(() => node.classList.remove('is-flipping'), 280);
-  }
-  const openingBoard = result.steps.length > 0 ? result.steps[0].board : result.game.board;
-  paintBoard({ ...state.game, board: openingBoard });
-  await wait(160);
-
-  await playSteps(result);
-
-  applyFinalGame(result.game);
-  state.shownScore = state.game.score;
   state.busy = false;
   paintBoard(state.game);
   updateHud({
@@ -1426,27 +1437,23 @@ function bind() {
   $('#btn-lang-home')?.addEventListener('click', () => openSheet('language'));
   $('#btn-pro')?.addEventListener('click', () => openSheet('pro'));
 
-  // mode cards（あとから作るので親で受ける）
+  // mode cards（あとから作るので親で受ける）。どちらも開始前ページを開く
   $('#mode-list')?.addEventListener('click', (event) => {
-    const timeButton = event.target.closest('[data-time]');
-    if (timeButton) {
-      if (!pro.canPlayMode(state.entitled, 'time', 4)) {
-        openSheet('pro');
-        return;
-      }
-      startGame('time', { size: 4, timeLimit: Number(timeButton.dataset.time) });
-      return;
-    }
     const main = event.target.closest('[data-mode]');
     if (!main) return;
     openStart(main.dataset.mode);
   });
 
-  // 開始前ページ（マス数と目標）
+  // 開始前ページ（マス数・タイムアタックの時間・目標）
   $('#start-sizes')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-size]');
     if (!button) return;
     pickStartSize(Number(button.dataset.size));
+  });
+  $('#start-chips')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-time]');
+    if (!button) return;
+    pickStartTime(Number(button.dataset.time));
   });
   $('#sheet-start')?.addEventListener('click', (event) => {
     const step = event.target.closest('[data-target-step]');
@@ -1455,11 +1462,16 @@ function bind() {
   });
   $('#btn-start')?.addEventListener('click', () => {
     const mode = state.start.mode;
-    if (!pro.canPlayMode(state.entitled, mode, state.start.size)) {
+    const timed = core.modeById(mode).timed;
+    if (!pro.canPlayMode(state.entitled, mode, state.start.size, timed ? state.start.timeLimit : undefined)) {
       openSheet('pro');
       return;
     }
-    startGame(mode, { size: state.start.size, target: state.start.target });
+    startGame(mode, {
+      size: state.start.size,
+      target: state.start.target,
+      timeLimit: timed ? state.start.timeLimit : undefined,
+    });
   });
 
   // play（左上の ← は Build 4 で外した。戻るは下部の「ホームへ」だけ）
@@ -1578,7 +1590,7 @@ function boot() {
 
   refreshTexts();
   buildHomeDemo();
-  buildBoard({ size: core.FREE_SIZE, board: [], mechanic: core.MECHANIC.swap, targets: { rows: 10, cols: 10 } });
+  buildBoard({ size: core.FREE_SIZE, board: [], targets: { rows: 10, cols: 10 } });
   // 最初の空盤面は数字を出さない（ホームの背景用）
   $$('#board .tile').forEach((node) => {
     const value = node.querySelector('.tile__value');
@@ -1647,25 +1659,18 @@ function boot() {
         state.game = { ...state.game, moves };
         updateHud();
       },
-      setBoard(values, { sides = [] } = {}) {
+      setBoard(values) {
         if (!state.game) return;
         state.game = {
           ...state.game,
-          board: values.map((value, i) => {
-            if (state.game.mechanic === core.MECHANIC.flip) {
-              return sides[i] === 'back'
-                ? { front: core.PAIR_SUM - value, back: value, side: core.SIDES.back }
-                : { front: value, back: core.PAIR_SUM - value, side: core.SIDES.front };
-            }
-            return { digit: value };
-          }),
+          board: values.map((value) => ({ digit: Math.min(9, Math.max(0, Math.round(Number(value) || 0))) })),
         };
         paintBoard(state.game);
         updateHud();
       },
       /** 失敗したときの切り分け用 */
       hint() {
-        return core.findHint(state.game.board, state.game.size, state.game.targets, state.game.mechanic);
+        return core.findHint(state.game.board, state.game.size, state.game.targets);
       },
     };
   }

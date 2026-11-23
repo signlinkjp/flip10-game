@@ -10,7 +10,7 @@
  *   preview     Web プレビュー — 開発確認用のスイッチで開ける（課金なし）
  */
 
-import { MODES, modeById, needsProSize, sizesFor } from './core.js';
+import { MODES, modeById, needsPro as coreNeedsPro, needsProSize as coreNeedsProSize, sizesFor, timeLimitsFor, normalizeTimeLimit } from './core.js';
 import { LOCALES } from './i18n.js';
 
 export const PRODUCT_ID = 'jp.signlink.Flip10.pro';
@@ -21,30 +21,39 @@ export const STORE_KEY = 'flip10.pro.v1';
 export const PREVIEW_KEY = 'flip10.pro.preview.v1';
 
 /**
- * PRO の線引き（Build 4）
+ * PRO の線引き（Build 5）
  *   classic … 4×4 は無料、5×5 / 6×6 は PRO
- *   cross   … 4×4 / 5×5 / 6×6 すべて PRO
- *   time    … 60秒 / 120秒 ともに PRO
- * モード全体が PRO かどうかは `mode.pro`、サイズ単位は core.needsProSize() が見る。
+ *   time    … 4×4・60秒だけ無料。5×5 / 6×6、120秒 / 180秒は PRO
+ * サイズは core.needsProSize()、時間は core.needsProTime()、組み合わせは core.needsPro() が見る。
  */
-export const FREE_MODES = Object.freeze(MODES.filter((mode) => !mode.pro).map((mode) => mode.id));
-export const PRO_MODES = Object.freeze(MODES.map((mode) => mode.id));
+export const FREE_MODES = Object.freeze(MODES.filter((mode) => mode.proSizes.length < mode.sizes.length).map((mode) => mode.id));
+export const PRO_MODES = Object.freeze(MODES.filter((mode) => mode.proSizes.length > 0).map((mode) => mode.id));
 
-/** そのモード自体が PRO か（十字フリップ・タイムアタック） */
-export function needsPro(modeId) {
-  return modeById(modeId).pro === true;
+/** そのモードに PRO が要る組み合わせがあるか */
+export function hasPro(modeId) {
+  const mode = modeById(modeId);
+  return mode.proSizes.length > 0 || Boolean(mode.timeLimits && mode.timeLimits.some((limit) => limit !== mode.freeTimeLimit));
 }
 
-/** そのモード・サイズを遊ぶのに PRO が要るか */
+/** そのモード・サイズが PRO か */
 export function needsProFor(modeId, size) {
-  return needsProSize(modeId, size);
+  return coreNeedsProSize(modeId, size);
 }
 
-/** その解錠状態で、そのモード・サイズを遊べるか */
-export function canPlayMode(entitled, modeId, size) {
+/** そのモード・サイズ・時間を遊ぶのに PRO が要るか */
+export function needsPro(modeId, size, timeLimit) {
+  return coreNeedsPro(modeId, size, timeLimit);
+}
+
+/**
+ * その解錠状態で、そのモード・サイズ（・時間）を遊べるか。
+ * タイムアタックの時間を省略したときは無料の 60秒として見る。
+ */
+export function canPlayMode(entitled, modeId, size, timeLimit) {
   const mode = modeById(modeId);
   const boardSize = size === undefined ? mode.sizes[0] : size;
-  return entitled === true || !needsProSize(mode.id, boardSize);
+  const limit = mode.timed ? normalizeTimeLimit(timeLimit ?? mode.freeTimeLimit, mode.freeTimeLimit) : undefined;
+  return entitled === true || !coreNeedsPro(mode.id, boardSize, limit);
 }
 
 /** その解錠状態で選べるモード（サイズを問わず1つでも遊べるモード） */
@@ -55,6 +64,11 @@ export function modesFor(entitled) {
 /** その解錠状態で選べるサイズ */
 export function sizesForEntitled(modeId, entitled) {
   return sizesFor(modeId).filter((size) => canPlayMode(entitled, modeId, size));
+}
+
+/** その解錠状態で選べる時間（タイムアタック） */
+export function timeLimitsForEntitled(modeId, entitled, size = 4) {
+  return timeLimitsFor(modeId).filter((limit) => canPlayMode(entitled, modeId, size, limit));
 }
 
 /** StoreKit の displayPrice が来る前の表示（日本は ¥300 固定のプレースホルダ） */

@@ -5,18 +5,14 @@
  * アプリを消せば一緒に消える。読めない環境（プライベートモード等）でも
  * 落ちないように、その場限りの Map に切り替える。
  *
- * Build 3 から:
- *   消える合計は「行も列も1つの数字」（`target`）。4×4 は 10 固定、5×5 / 6×6 は 12〜42。
- *   BGM は最初から ON（`bgmDefault` が 3 になった最初の1回だけ ON にし、
- *   ユーザーが OFF にしたらそれ以降は尊重する）。
- *
- * Build 4 から:
+ * Build 5 から:
  *   消える合計は開始前ページでモード×マス数ごとに選ぶ（`targets`）。
- *   設定画面のステッパーは無くし、最後に選んだ値を覚えておくだけにした。
+ *   初期値（＝サイズを切り替えたときの値）は基準目標 4×4=10 / 5×5=18 / 6×6=24。
+ *   十字フリップを外したので `cross5` / `cross6` は読まない（あっても捨てる）。
  *   古い `target` / `rowTarget` は 5×5・6×6 のクラシックに引き継ぐ。
  */
 
-import { DEFAULT_TARGET, clampTarget, FREE_SIZE, MECHANIC, defaultTargetFor } from './core.js';
+import { DEFAULT_TARGET, clampTarget, FREE_SIZE, defaultTargetFor } from './core.js';
 import { DEFAULT_LOCALE, detectLocale, isLocale } from './i18n.js';
 
 // キー名は FLIP 10 時代のまま（改名でユーザーのベストと設定を失わないため）
@@ -29,21 +25,17 @@ export const BGM_DEFAULT_VERSION = 3;
 /** 文字サイズの3段階 */
 export const TEXT_SIZES = Object.freeze(['normal', 'large', 'xl']);
 
-/** モード×マス数ごとの、最後に選んだ消える合計（Build 4） */
+/** モード×マス数ごとの、最後に選んだ消える合計（Build 5。初期値は基準目標） */
 export const DEFAULT_TARGETS = Object.freeze({
-  classic5: 20,
-  classic6: 20,
-  cross5: 13,
-  cross6: 16,
+  classic5: 18,
+  classic6: 24,
+  time5: 18,
+  time6: 24,
 });
 
 /** そのモード・マス数の合計を覚えるキー */
 export function targetKey(modeId, size) {
   return `${modeId}${size}`;
-}
-
-function mechanicOfKey(key) {
-  return key.startsWith('cross') ? MECHANIC.flip : MECHANIC.swap;
 }
 
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -103,8 +95,8 @@ function writeJson(store, key, value) {
 }
 
 /** 合計はその盤面の範囲に丸める（4×4 は 10 固定） */
-export function normalizeTarget(value, size = FREE_SIZE, mechanic = MECHANIC.swap) {
-  return clampTarget(value, size, mechanic);
+export function normalizeTarget(value, size = FREE_SIZE) {
+  return clampTarget(value, size);
 }
 
 /** 保存された targets を、今の範囲に丸めて作る */
@@ -113,12 +105,12 @@ function normalizeTargets(raw, legacy) {
   const out = { ...DEFAULT_TARGETS };
   for (const key of Object.keys(DEFAULT_TARGETS)) {
     const size = Number(key.slice(-1));
-    out[key] = clampTarget(source[key], size, mechanicOfKey(key));
+    out[key] = clampTarget(source[key], size);
   }
   // 古い1つの合計（Build 3 まで）は 5×5・6×6 のクラシックに引き継ぐ
   if (legacy !== undefined && source.classic5 === undefined) {
-    out.classic5 = clampTarget(legacy, 5, MECHANIC.swap);
-    out.classic6 = clampTarget(legacy, 6, MECHANIC.swap);
+    out.classic5 = clampTarget(legacy, 5);
+    out.classic6 = clampTarget(legacy, 6);
   }
   return out;
 }
@@ -162,11 +154,13 @@ export function updateSettings(patch, store = createStore()) {
   return saveSettings({ ...loadSettings(store), ...(patch || {}) }, store);
 }
 
-/** そのモード・マス数で使う合計（設定の値を範囲に丸める。4×4 は 10） */
+/**
+ * そのモード・マス数で使う合計。
+ * 覚えた値が無ければ基準目標（4×4=10 / 5×5=18 / 6×6=24）を返す。
+ */
 export function targetFor(settings, modeId, size = FREE_SIZE) {
-  const mechanic = modeId === 'cross' ? MECHANIC.flip : MECHANIC.swap;
   const saved = settings && settings.targets ? settings.targets[targetKey(modeId, size)] : undefined;
-  return clampTarget(saved ?? defaultTargetFor(size, mechanic), size, mechanic);
+  return clampTarget(saved ?? defaultTargetFor(size), size);
 }
 
 /** その盤面サイズで実際に使う合計（4×4 は 10 固定、5×5 / 6×6 は設定値） */
@@ -178,8 +172,7 @@ export function targetsFor(settings, size = FREE_SIZE) {
 
 /** 合計を1つ覚える（開始前ページのステッパー用） */
 export function rememberTarget(settings, modeId, size, value, store = createStore()) {
-  const mechanic = modeId === 'cross' ? MECHANIC.flip : MECHANIC.swap;
-  const next = clampTarget(value, size, mechanic);
+  const next = clampTarget(value, size);
   const targets = { ...(settings && settings.targets ? settings.targets : DEFAULT_TARGETS), [targetKey(modeId, size)]: next };
   return updateSettings({ ...(settings || {}), targets }, store);
 }

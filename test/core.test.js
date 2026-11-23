@@ -1,16 +1,17 @@
 /**
- * LINEZAP — ルールの単体テスト（node --test / Build 4）
+ * LINEZAP — ルールの単体テスト（node --test / Build 5）
  *
  * ここが固いことが「遊べる」の条件:
- *   - モードは クラシック / 十字フリップ / タイムアタック の3つ。どれもマス数と目標を選んで始める
- *   - 消える合計は行も列も同じ1つ（4×4 は 10 固定 / 入れ替えは 12〜42 / 十字フリップは 10〜18・12〜22）
+ *   - モードは クラシック / タイムアタック の2つ。どちらもマス数と目標を選んで始める
+ *   - 消える合計は行も列も同じ1つ（4×4 は 10 固定 / 5×5・6×6 は 12〜42、基準 18 / 24）
  *   - 盤面サイズごとに 手数 4/5/5・制限時間 10/12/15秒
+ *   - 無料は クラシック4×4 と タイムアタック4×4・60秒 だけ。ほかは PRO
  *   - 1手 −1、1ライン +1 / 2ライン +2 / 3ライン以上か連鎖で全回復
  *   - 1ライン以上消すと制限時間が戻る。0秒で手数が残っていてもゲームオーバー
  *   - ヒントは手数 −2（残り3以上）。残り2以下では使えない
  *   - 行・列の合計が target で消える（交差も1回だけ）・下詰め・連鎖はコンボ
- *   - 十字フリップ（PRO）は ＋の字が反転・表裏で5
- *   - タイムアタックは 0 秒で終了（手数もターンタイマーも無い）
+ *   - タイムアタックは 60/120/180秒。0 秒で終了（手数もターンタイマーも無い）
+ *   - 十字フリップは Build 5 で無い（モード・ルール・辞書から消えている）
  */
 
 import test from 'node:test';
@@ -20,29 +21,15 @@ import * as core from '../src/core.js';
 /** 表示値からタイルを作る */
 const tile = (value) => core.tileWithValue(value);
 
-/** 4×4 を [行0, 行1, ...] の配列から作る（十字フリップは back で裏向き） */
-function board4(rows, { back = [] } = {}) {
-  const out = [];
-  rows.forEach((row, r) => {
-    row.forEach((value) => {
-      if (back.includes(r)) {
-        out.push({ front: core.PAIR_SUM - value, back: value, side: core.SIDES.back });
-      } else {
-        out.push(tile(value));
-      }
-    });
-  });
-  return out;
+/** 4×4 を [行0, 行1, ...] の配列から作る */
+function board4(rows) {
+  return rows.flat().map((value) => tile(value));
 }
 
 /** サイズと値の配列から盤面を作る */
-function boardOf(size, values) {
-  const rows = [];
-  for (let r = 0; r < size; r += 1) rows.push(values.slice(r * size, (r + 1) * size));
-  return rows;
+function flat(values) {
+  return values.map((value) => tile(value));
 }
-
-const flat = (values) => values.map((value) => tile(value));
 
 /** 決まった数字を順に返す rng（0..9 を pool に渡す前提） */
 function sequenceRng(values, max = 9) {
@@ -54,46 +41,77 @@ function sequenceRng(values, max = 9) {
   };
 }
 
-function gameWith(rows, { mode = 'classic', size = 4, target = 10, moves, back = [] } = {}) {
+function gameWith(rows, { mode = 'classic', size = 4, target = 10, moves } = {}) {
   const game = core.startGame({ mode, size, target, rng: core.seededRng(1) });
-  return { ...game, board: board4(rows, { back }), moves: game.life ? (moves ?? game.moves) : null };
+  return { ...game, board: board4(rows), moves: game.life ? (moves ?? game.moves) : null };
 }
 
 /* ------------------------------------------------------------------ */
 /* モードと盤面                                                        */
 /* ------------------------------------------------------------------ */
 
-test('モードは3つ（クラシック / 十字フリップ / タイムアタック）', () => {
+test('モードは2つ（クラシック / タイムアタック）', () => {
   assert.deepEqual(
-    core.MODES.map((mode) => [mode.id, mode.mechanic, mode.life, mode.timed, mode.pro]),
+    core.MODES.map((mode) => [mode.id, mode.timed, mode.life, mode.proSizes.join('')]),
     [
-      ['classic', 'swap', true, false, false],
-      ['cross', 'flip', true, false, true],
-      ['time', 'swap', false, true, true],
+      ['classic', false, true, '56'],
+      ['time', true, false, '56'],
     ],
   );
   assert.deepEqual([...core.SIZES], [4, 5, 6]);
   assert.deepEqual([...core.sizesFor('classic')], [4, 5, 6]);
-  assert.deepEqual([...core.sizesFor('cross')], [4, 5, 6]);
-  assert.deepEqual([...core.sizesFor('time')], [4]);
+  assert.deepEqual([...core.sizesFor('time')], [4, 5, 6]);
+  assert.deepEqual([...core.TIME_LIMITS], [60, 120, 180]);
+  assert.deepEqual([...core.timeLimitsFor('time')], [60, 120, 180]);
+  assert.deepEqual([...core.timeLimitsFor('classic')], []);
   assert.equal(core.MAX_SIZE, 6);
+  // 十字フリップは遊び方から完全に消えている
+  assert.equal(core.isModeId('cross'), false);
+  assert.equal(core.modeById('cross').id, 'classic');
+  for (const name of ['flipAt', 'flipBoard', 'cross', 'findFlipHint', 'pairLegend', 'MECHANIC', 'PAIR_SUM']) {
+    assert.equal(core[name], undefined, `${name} が残っている`);
+  }
 });
 
-test('PRO の線引き: クラシックの 5×5・6×6、十字フリップとタイムアタックの全部', () => {
+test('PRO の線引き: クラシック 5×5・6×6、タイムアタックは 120/180秒と 5×5・6×6', () => {
   assert.equal(core.needsProSize('classic', 4), false);
   assert.equal(core.needsProSize('classic', 5), true);
   assert.equal(core.needsProSize('classic', 6), true);
-  assert.equal(core.needsProSize('cross', 4), true);
-  assert.equal(core.needsProSize('cross', 6), true);
-  assert.equal(core.needsProSize('time', 4), true);
+  assert.equal(core.needsProSize('time', 4), false);
+  assert.equal(core.needsProSize('time', 5), true);
+  assert.equal(core.needsProSize('time', 6), true);
+
+  assert.equal(core.needsProTime('time', 60), false);
+  assert.equal(core.needsProTime('time', 120), true);
+  assert.equal(core.needsProTime('time', 180), true);
+  assert.equal(core.needsProTime('classic', 180), false, 'クラシックに時間は無い');
+
+  // 無料なのは クラシック4×4 と タイムアタック4×4・60秒 だけ
+  assert.equal(core.needsPro('classic', 4), false);
+  assert.equal(core.needsPro('classic', 5), true);
+  assert.equal(core.needsPro('time', 4, 60), false);
+  assert.equal(core.needsPro('time', 4, 120), true);
+  assert.equal(core.needsPro('time', 4, 180), true);
+  assert.equal(core.needsPro('time', 5, 60), true);
+  assert.equal(core.needsPro('time', 6, 180), true);
   assert.equal(core.hasProSize('classic'), true);
-  assert.equal(core.hasProSize('cross'), true);
+  assert.equal(core.hasProSize('time'), true);
+});
+
+test('基準目標は 4×4=10 / 5×5=18 / 6×6=24', () => {
+  assert.equal(core.baseTargetFor(4), 10);
+  assert.equal(core.baseTargetFor(5), 18);
+  assert.equal(core.baseTargetFor(6), 24);
+  assert.equal(core.baseTargetFor(99), 10, '範囲外は4×4');
+  assert.equal(core.defaultTargetFor(5), 18);
+  assert.equal(core.defaultTargetFor(6), 24);
+  assert.deepEqual({ ...core.BASE_TARGETS }, { 4: 10, 5: 18, 6: 24 });
 });
 
 test('手数と制限時間は 4×4=4/10秒、5×5=5/12秒、6×6=5/15秒', () => {
-  assert.deepEqual(core.SIZE_RULES[4], { moves: 4, turnSeconds: 10 });
-  assert.deepEqual(core.SIZE_RULES[5], { moves: 5, turnSeconds: 12 });
-  assert.deepEqual(core.SIZE_RULES[6], { moves: 5, turnSeconds: 15 });
+  assert.deepEqual({ ...core.SIZE_RULES[4] }, { moves: 4, turnSeconds: 10, baseTarget: 10 });
+  assert.deepEqual({ ...core.SIZE_RULES[5] }, { moves: 5, turnSeconds: 12, baseTarget: 18 });
+  assert.deepEqual({ ...core.SIZE_RULES[6] }, { moves: 5, turnSeconds: 15, baseTarget: 24 });
   assert.equal(core.startMovesFor(4), 4);
   assert.equal(core.startMovesFor(6), 5);
   assert.equal(core.turnSecondsFor(5), 12);
@@ -104,25 +122,23 @@ test('手数と制限時間は 4×4=4/10秒、5×5=5/12秒、6×6=5/15秒', () =
 /* 合計（target）                                                      */
 /* ------------------------------------------------------------------ */
 
-test('消える合計の範囲は 操作×サイズ で決まる', () => {
-  assert.deepEqual(core.targetBounds(4, 'swap'), { min: 10, max: 10, fixed: true });
-  assert.deepEqual(core.targetBounds(5, 'swap'), { min: 12, max: 42, fixed: false });
-  assert.deepEqual(core.targetBounds(6, 'swap'), { min: 12, max: 42, fixed: false });
-  assert.deepEqual(core.targetBounds(4, 'flip'), { min: 10, max: 10, fixed: true });
-  assert.deepEqual(core.targetBounds(5, 'flip'), { min: 10, max: 18, fixed: false });
-  assert.deepEqual(core.targetBounds(6, 'flip'), { min: 12, max: 22, fixed: false });
+test('消える合計の範囲はサイズで決まる（十字フリップの範囲は消えた）', () => {
+  assert.deepEqual(core.targetBounds(4), { min: 10, max: 10, fixed: true });
+  assert.deepEqual(core.targetBounds(5), { min: 12, max: 42, fixed: false });
+  assert.deepEqual(core.targetBounds(6), { min: 12, max: 42, fixed: false });
+  assert.equal(core.targetBounds(5, 'flip').max, 42, '第2引数はもう見ない');
 
   assert.equal(core.clampTarget(30, 4), 10);
   assert.equal(core.clampTarget(30, 5), 30);
   assert.equal(core.clampTarget(3, 5), 12);
   assert.equal(core.clampTarget(99, 6), 42);
-  assert.equal(core.clampTarget(99, 5, 'flip'), 18, '十字フリップ5×5の上限は18');
-  assert.equal(core.clampTarget(2, 6, 'flip'), 12, '十字フリップ6×6の下限は12');
-  assert.equal(core.clampTarget('x', 5, 'flip'), 13, '十字フリップ5×5の既定は13');
+  assert.equal(core.clampTarget('x', 5), 18, '壊れた値は基準目標');
+  assert.equal(core.clampTarget('x', 6), 24);
   assert.deepEqual(core.targetPair(26, 6), { rows: 26, cols: 26 });
+  assert.deepEqual(core.targetPair(26, 4), { rows: 10, cols: 10 });
 });
 
-test('startGame はモード・サイズ・目標を反映する', () => {
+test('startGame はモード・サイズ・目標・時間を反映する', () => {
   const classic4 = core.startGame({ mode: 'classic', rng: core.seededRng(1) });
   assert.equal(classic4.size, 4);
   assert.equal(classic4.moves, 4);
@@ -138,27 +154,34 @@ test('startGame はモード・サイズ・目標を反映する', () => {
   assert.equal(classic5.turnLimit, 12000);
   assert.deepEqual(classic5.targets, { rows: 30, cols: 30 });
 
-  const classic6 = core.startGame({ mode: 'classic', size: 6, target: 12, rng: core.seededRng(1) });
+  const classic6 = core.startGame({ mode: 'classic', size: 6, rng: core.seededRng(1) });
   assert.equal(classic6.board.length, 36);
   assert.equal(classic6.turnLimit, 15000);
-  assert.deepEqual(classic6.targets, { rows: 12, cols: 12 });
+  assert.deepEqual(classic6.targets, { rows: 24, cols: 24 }, '目標未指定は基準 24');
 
   // 4×4 は設定値を持ち込まない
   assert.deepEqual(core.startGame({ mode: 'classic', size: 4, target: 40, rng: core.seededRng(1) }).targets, { rows: 10, cols: 10 });
 
-  const cross5 = core.startGame({ mode: 'cross', size: 5, target: 18, rng: core.seededRng(1) });
-  assert.equal(cross5.mechanic, 'flip');
-  assert.equal(cross5.board.length, 25);
-  assert.deepEqual(cross5.targets, { rows: 18, cols: 18 });
-  assert.ok(cross5.board.every((item) => core.displayValue(item) <= 5));
-
-  const time = core.startGame({ mode: 'time', timeLimit: 120, rng: core.seededRng(1) });
-  assert.equal(time.size, 4);
-  assert.equal(time.timed, true);
-  assert.equal(time.life, false);
-  assert.equal(time.moves, null);
-  assert.equal(time.turnLimit, 0);
-  assert.equal(time.timeLeft, 120000);
+  for (const limit of [60, 120, 180]) {
+    const time = core.startGame({ mode: 'time', size: 4, timeLimit: limit, rng: core.seededRng(1) });
+    assert.equal(time.size, 4);
+    assert.equal(time.timed, true);
+    assert.equal(time.life, false);
+    assert.equal(time.moves, null);
+    assert.equal(time.turnLimit, 0);
+    assert.equal(time.timeLimit, limit);
+    assert.equal(time.timeLeft, limit * 1000);
+  }
+  // タイムアタックの 5×5 / 6×6 も同じルール
+  const time6 = core.startGame({ mode: 'time', size: 6, timeLimit: 180, rng: core.seededRng(1) });
+  assert.equal(time6.board.length, 36);
+  assert.deepEqual(time6.targets, { rows: 24, cols: 24 });
+  assert.equal(time6.timeLeft, 180000);
+  // 時間は 60/120/180 に丸める
+  assert.equal(core.startGame({ mode: 'time', timeLimit: 999, rng: core.seededRng(1) }).timeLimit, 60);
+  assert.equal(core.normalizeTimeLimit(120), 120);
+  assert.equal(core.normalizeTimeLimit('180'), 180);
+  assert.equal(core.normalizeTimeLimit(0), 60);
 });
 
 /* ------------------------------------------------------------------ */
@@ -168,11 +191,13 @@ test('startGame はモード・サイズ・目標を反映する', () => {
 test('数字の範囲は target と盤面サイズから決まる', () => {
   assert.deepEqual(core.digitPool(4, 10), { min: 0, max: 6 });
   assert.deepEqual(core.digitPool(5, 12), { min: 0, max: 6 });
-  assert.deepEqual(core.digitPool(5, 20), { min: 1, max: 7 });
+  assert.deepEqual(core.digitPool(5, 18), { min: 0, max: 7 });
   assert.deepEqual(core.digitPool(5, 42), { min: 5, max: 9 });
   assert.deepEqual(core.digitPool(6, 12), { min: 0, max: 5 });
-  assert.deepEqual(core.digitPool(6, 20), { min: 0, max: 7 });
-  assert.deepEqual(core.digitPool(6, 42), { min: 4, max: 9 });
+  assert.deepEqual(core.digitPool(6, 24), { min: 1, max: 7 });
+  // 18/5 = 3.6 → 中心 3.6・幅 6 で 0..7（テストの実装に合わせて確認）
+  const pool18 = core.digitPool(5, 18);
+  assert.ok(pool18.min >= 0 && pool18.max <= 9);
   for (const size of [4, 5, 6]) {
     for (let target = 12; target <= 42; target += 1) {
       const pool = core.digitPool(size, target);
@@ -182,7 +207,7 @@ test('数字の範囲は target と盤面サイズから決まる', () => {
   }
 });
 
-test('入れ替えの盤面は 4×4(10)・5×5/6×6(12〜42) のどこでも詰まらない', () => {
+test('盤面は 4×4(10)・5×5/6×6(12〜42) のどこでも詰まらない', () => {
   const cases = [[4, [10]], [5, [12, 14, 18, 20, 24, 30, 36, 42]], [6, [12, 14, 18, 20, 24, 30, 36, 42]]];
   for (const [size, targets] of cases) {
     for (const target of targets) {
@@ -197,23 +222,8 @@ test('入れ替えの盤面は 4×4(10)・5×5/6×6(12〜42) のどこでも詰�
   }
 });
 
-test('十字フリップの盤面は 4×4(10)・5×5(10〜18)・6×6(12〜22) のどこでも詰まらない', () => {
-  for (const [size, min, max] of [[4, 10, 10], [5, 10, 18], [6, 12, 22]]) {
-    for (let target = min; target <= max; target += 1) {
-      const t = core.targetPair(target, size, core.MECHANIC.flip);
-      for (let seed = 1; seed <= 5; seed += 1) {
-        const board = core.makeBoard({ size, mechanic: core.MECHANIC.flip, target: t, rng: core.seededRng(seed * 977 + target) });
-        assert.equal(board.length, size * size);
-        assert.ok(board.every((item) => core.displayValue(item) <= 5), `${size}/${target} に6以上`);
-        assert.equal(core.findClears(board, size, t).cells.length, 0, `${size}/${target}/${seed} が最初から消える`);
-        assert.ok(core.hasMove(board, size, t, core.MECHANIC.flip), `${size}/${target}/${seed} に手が無い`);
-      }
-    }
-  }
-});
-
 test('有効な手は本当に合計を target にする（4×4・5×5・6×6）', () => {
-  const cases = [[4, [10]], [5, [12, 24, 42]], [6, [12, 24, 42]]];
+  const cases = [[4, [10]], [5, [12, 18, 24, 42]], [6, [12, 24, 42]]];
   for (const [size, targets] of cases) {
     for (const target of targets) {
       const t = core.targetPair(target, size);
@@ -267,7 +277,7 @@ test('行も列も同じ合計で消える（交差は1回だけ）', () => {
   assert.equal(clears.cells.length, 4 + 3);
 });
 
-test('6×6 も行・列の合計で消える（目標 24）', () => {
+test('6×6 も行・列の合計で消える（基準目標 24）', () => {
   const values = [
     4, 4, 4, 4, 4, 4,
     1, 1, 1, 1, 1, 1,
@@ -276,7 +286,7 @@ test('6×6 も行・列の合計で消える（目標 24）', () => {
     5, 5, 5, 5, 5, 5,
     0, 0, 0, 0, 0, 0,
   ];
-  const board = boardOf(6, values).flat().map((value) => tile(value));
+  const board = flat(values);
   const clears = core.findClears(board, 6, 24);
   assert.deepEqual(clears.rows, [0]);
   assert.deepEqual(clears.cols, []);
@@ -345,23 +355,26 @@ test('1ライン消しは手数が減らない（4で消すと4のまま）', ()
 });
 
 test('2ライン消しは実質 +1、3ライン以上/連鎖は満タン', () => {
-  const base = core.startGame({ mode: 'classic', size: 5, target: 20, rng: core.seededRng(2) });
-  // 2ライン（行0と列0）が同時に消える盤面
+  const base = core.startGame({ mode: 'classic', size: 5, target: 18, rng: core.seededRng(2) });
+  // 行0と列0が同時に 18 になる盤面（交差は1回だけ消える）
   const values = [
-    0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0,
-    0, 5, 5, 5, 5,
-    0, 5, 5, 5, 5,
-    0, 5, 5, 5, 5,
+    6, 3, 3, 3, 3,
+    3, 0, 0, 0, 0,
+    3, 0, 0, 0, 0,
+    3, 0, 0, 0, 0,
+    3, 0, 0, 0, 0,
   ];
   const board = values.map((value) => tile(value));
-  const resolved = core.resolveBoard(board, { size: 5, target: 20, pool: { min: 0, max: 9 }, rng: () => 0 });
-  assert.ok(resolved.steps.length >= 1);
+  const resolved = core.resolveBoard(board, { size: 5, target: 18, pool: { min: 0, max: 9 }, rng: () => 0 });
+  assert.equal(resolved.steps.length, 1);
+  assert.deepEqual(resolved.steps[0].rows, [0]);
+  assert.deepEqual(resolved.steps[0].cols, [0]);
+  assert.equal(resolved.steps[0].cells.length, 9);
   const game = { ...base, board, moves: 3 };
   const next = core.applyMoveCost(game, resolved);
   const reward = core.moveReward({ lines: resolved.clearedLines, steps: resolved.steps.length, maxMoves: 5 });
-  assert.ok(reward >= 1);
-  assert.equal(next.moves, Math.min(5, 3 - 1 + reward));
+  assert.equal(reward, 2, '2ラインは +2');
+  assert.equal(next.moves, Math.min(5, 3 - 1 + 2));
 });
 
 test('消えない入れ替えは手数 −1、連鎖は0に戻る', () => {
@@ -393,14 +406,15 @@ test('手数が0になったらゲームオーバー（それ以上は動かな�
   assert.equal(core.swapTiles(result.game, 2, 3, () => 0).swap, null);
 });
 
-test('盤の外・同じマス・違う操作のタップは何も起きない', () => {
+test('盤の外・同じマス・小数のタップは何も起きない', () => {
   const game = core.startGame({ mode: 'classic', rng: core.seededRng(4) });
   assert.equal(core.swapTiles(game, -1, 0).swap, null);
   assert.equal(core.swapTiles(game, 0, 99).swap, null);
   assert.equal(core.swapTiles(game, 2, 2).swap, null);
   assert.equal(core.swapTiles(game, 1.5, 2).swap, null);
-  const cross = core.startGame({ mode: 'cross', rng: core.seededRng(5) });
-  assert.equal(core.swapTiles(cross, 0, 1).swap, null);
+
+  const time = core.startGame({ mode: 'time', size: 5, timeLimit: 120, rng: core.seededRng(5) });
+  assert.ok(core.swapTiles(time, 0, 1, () => 0).swap, 'タイムアタックでも入れ替えは通る');
 });
 
 /* ------------------------------------------------------------------ */
@@ -443,7 +457,7 @@ test('制限時間が0になると、手数が残っていてもゲームオー�
   assert.equal(core.advanceTime(done, 1000).turnLeft, 0, '終わったら進まない');
 });
 
-test('エンドレスはサイズごとの秒数、タイムアタックは全体タイマーだけ', () => {
+test('クラシックはサイズごとの秒数、タイムアタックは 60/120/180秒の全体タイマー', () => {
   const g5 = core.startGame({ mode: 'classic', size: 5, rng: core.seededRng(1) });
   assert.equal(g5.turnLimit, 12000);
   assert.equal(core.advanceTime(g5, 11900).status, core.STATUS.playing);
@@ -451,16 +465,18 @@ test('エンドレスはサイズごとの秒数、タイムアタックは全�
   assert.equal(g5out.status, core.STATUS.over);
   assert.equal(g5out.overReason, 'time');
 
-  const time = core.startGame({ mode: 'time', timeLimit: 60, rng: core.seededRng(2) });
-  assert.equal(time.timeLeft, 60000);
-  assert.equal(time.turnLimit, 0);
-  const half = core.advanceTime(time, 30500);
-  assert.equal(half.timeLeft, 29500);
-  assert.equal(half.status, core.STATUS.playing);
-  const done = core.advanceTime(half, 40000);
-  assert.equal(done.status, core.STATUS.over);
-  assert.equal(done.overReason, core.OVER_REASON.time);
+  for (const limit of [60, 120, 180]) {
+    const time = core.startGame({ mode: 'time', size: 4, timeLimit: limit, rng: core.seededRng(2) });
+    assert.equal(time.timeLeft, limit * 1000);
+    assert.equal(time.turnLimit, 0);
+    const half = core.advanceTime(time, Math.round(limit * 1000 * 0.51));
+    assert.equal(half.status, core.STATUS.playing, `${limit}秒`);
+    const done = core.advanceTime(half, limit * 1000);
+    assert.equal(done.status, core.STATUS.over, `${limit}秒`);
+    assert.equal(done.overReason, core.OVER_REASON.time);
+  }
   assert.equal(core.formatClock(65000), '1:05');
+  assert.equal(core.formatClock(180000), '3:00');
   assert.equal(core.formatSeconds(9400), '9.4');
   assert.equal(core.formatSeconds(-5), '0.0');
 });
@@ -491,72 +507,36 @@ test('ヒントは手数 −2。残り2以下では使えない', () => {
 });
 
 test('タイムアタックは手数を持たないのでヒントもタダ', () => {
-  const game = core.startGame({ mode: 'time', rng: core.seededRng(1) });
-  assert.equal(core.hintAllowed(game), true);
-  const spent = core.spendHint(game);
-  assert.equal(spent.spent, 0);
-  assert.equal(spent.game.moves, null);
-});
-
-/* ------------------------------------------------------------------ */
-/* 十字フリップ                                                        */
-/* ------------------------------------------------------------------ */
-
-test('十字フリップ: ＋の字だけが反転し、表裏は足して5', () => {
-  assert.deepEqual(core.cross(4, 5), [5, 1, 4, 6, 9]);
-  assert.deepEqual(core.cross(4, 0), [0, 1, 4]);
-  assert.deepEqual(core.cross(5, 12), [12, 7, 11, 13, 17]);
-  assert.deepEqual(core.cross(6, 14), [14, 8, 13, 15, 20]);
-  const board = Array.from({ length: 16 }, (_, i) => core.tileWithValue(i % 6, core.MECHANIC.flip));
-  const { board: after, flipped } = core.flipBoard(board, 4, 5);
-  assert.deepEqual(flipped, [5, 1, 4, 6, 9]);
-  for (let i = 0; i < 16; i += 1) {
-    if (flipped.includes(i)) {
-      assert.equal(after[i].side, core.SIDES.back, `${i} が裏返っていない`);
-      assert.equal(core.displayValue(after[i]), 5 - core.displayValue(board[i]));
-    } else {
-      assert.equal(after[i], board[i]);
-    }
+  for (const limit of [60, 120, 180]) {
+    const game = core.startGame({ mode: 'time', timeLimit: limit, rng: core.seededRng(1) });
+    assert.equal(core.hintAllowed(game), true);
+    const spent = core.spendHint(game);
+    assert.equal(spent.spent, 0);
+    assert.equal(spent.game.moves, null);
   }
-});
-
-test('十字フリップでもラインが消えて手数が回復する', () => {
-  let found = null;
-  for (let seed = 1; seed <= 40 && !found; seed += 1) {
-    const game = core.startGame({ mode: 'cross', size: 5, rng: core.seededRng(seed) });
-    const hint = core.findFlipHint(game.board, game.size, game.targets);
-    if (!hint) continue;
-    const result = core.flipAt(game, hint.index, () => 0);
-    if (result.steps.length >= 1) found = result;
-  }
-  assert.ok(found, '消える十字フリップが見つからない');
-  assert.ok(found.game.score > 0);
-  assert.ok(found.game.moves >= 1);
-  assert.equal(found.game.mechanic, core.MECHANIC.flip);
-  assert.equal(found.game.turnLeft, found.game.turnLimit, '消したので時間も戻る');
 });
 
 /* ------------------------------------------------------------------ */
 /* キーと表示                                                          */
 /* ------------------------------------------------------------------ */
 
-test('ハイスコアのキーはモード×サイズ、タイムは60/120で別', () => {
+test('ハイスコアのキーはモード×サイズ、タイムはサイズ×60/120/180で別', () => {
   assert.equal(core.gameKey('classic', 4), 'classic4');
   assert.equal(core.gameKey('classic', 5), 'classic5');
   assert.equal(core.gameKey('classic', 6), 'classic6');
-  assert.equal(core.gameKey('cross', 4), 'cross4');
-  assert.equal(core.gameKey('cross', 6), 'cross6');
+  // 4×4 は Build 4 の記録（time60 / time120）をそのまま引き継ぐ
   assert.equal(core.gameKey('time', 4, 60), 'time60');
   assert.equal(core.gameKey('time', 4, 120), 'time120');
+  assert.equal(core.gameKey('time', 4, 180), 'time180');
   assert.equal(core.gameKey('time', 4, 999), 'time60');
-});
-
-test('凡例のペアは 0↔5 / 1↔4 / 2↔3', () => {
-  assert.deepEqual(core.pairLegend(), [
-    { front: 0, back: 5 },
-    { front: 1, back: 4 },
-    { front: 2, back: 3 },
-  ]);
+  assert.equal(core.gameKey('time', 5, 60), 'time5x60');
+  assert.equal(core.gameKey('time', 6, 180), 'time6x180');
+  // すべて別のキーになる（記録が混ざらない）
+  const keys = new Set();
+  for (const size of [4, 5, 6]) {
+    for (const limit of [60, 120, 180]) keys.add(core.gameKey('time', size, limit));
+  }
+  assert.equal(keys.size, 9);
 });
 
 test('合計に近いラインを教えられる', () => {
@@ -578,16 +558,16 @@ test('合計に近いラインを教えられる', () => {
 /* ------------------------------------------------------------------ */
 
 test('クラシック 4×4/5×5/6×6 を200手ずつ遊んでも壊れない', () => {
-  for (const setup of [{ size: 4, target: 10 }, { size: 5, target: 20 }, { size: 6, target: 30 }]) {
-    const rng = core.seededRng(setup.size * 31 + 7);
+  for (const setup of [{ size: 4, target: 10 }, { size: 5, target: 18 }, { size: 6, target: 24 }, { size: 6, target: 42 }]) {
+    const rng = core.seededRng(setup.size * 31 + 7 + setup.target);
     let game = core.startGame({ mode: 'classic', ...setup, rng });
     let swaps = 0;
     let clears = 0;
     for (let move = 0; move < 200 && game.status === core.STATUS.playing; move += 1) {
-      const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
-      assert.ok(hint, `${setup.size} の手 ${move} でヒントが無い`);
+      const hint = core.findHint(game.board, game.size, game.targets);
+      assert.ok(hint, `${setup.size}/${setup.target} の手 ${move} でヒントが無い`);
       const result = core.swapTiles(game, hint.a, hint.b, rng);
-      assert.ok(result.swap, `${setup.size} の手 ${move} が通らない`);
+      assert.ok(result.swap, `${setup.size}/${setup.target} の手 ${move} が通らない`);
       for (const step of result.steps) {
         const sums = core.sums(step.board, game.size);
         for (const r of step.rows) assert.equal(sums.rows[r], game.targets.rows);
@@ -600,27 +580,34 @@ test('クラシック 4×4/5×5/6×6 を200手ずつ遊んでも壊れない', (
       game = result.game;
       swaps += 1;
     }
-    assert.ok(swaps > 10, `${setup.size} で ${swaps} 手しか遊べない`);
-    assert.ok(clears > 0, `${setup.size} で一度も消えない`);
+    assert.ok(swaps > 10, `${setup.size}/${setup.target} で ${swaps} 手しか遊べない`);
+    assert.ok(clears > 0, `${setup.size}/${setup.target} で一度も消えない`);
   }
 });
 
-test('十字フリップ 4×4/5×5/6×6 を60手ずつ遊んでも壊れない', () => {
+test('タイムアタック 4×4/5×5/6×6 を時間いっぱい遊んでも壊れない（180秒）', () => {
   for (const size of [4, 5, 6]) {
-    const rng = core.seededRng(size * 13 + 5);
-    let game = core.startGame({ mode: 'cross', size, rng });
-    let turns = 0;
-    for (let step = 0; step < 60 && game.status === core.STATUS.playing; step += 1) {
-      const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
-      assert.ok(hint, `cross ${size} の手 ${step} でヒントが無い`);
-      const result = core.flipAt(game, hint.index, rng);
-      assert.ok(result.flip, `cross ${size} の手 ${step} が通らない`);
+    const rng = core.seededRng(size * 17 + 3);
+    let game = core.startGame({ mode: 'time', size, timeLimit: 180, rng });
+    let moves = 0;
+    for (let step = 0; step < 80 && game.status === core.STATUS.playing; step += 1) {
+      const hint = core.findHint(game.board, game.size, game.targets);
+      assert.ok(hint, `time ${size} の手 ${step} でヒントが無い`);
+      const result = core.swapTiles(game, hint.a, hint.b, rng);
+      assert.ok(result.swap, `time ${size} の手 ${step} が通らない`);
       assert.equal(result.game.board.length, size * size);
-      assert.ok(result.game.board.every((item) => core.displayValue(item) <= 5));
+      assert.equal(result.game.moves, null, 'タイムアタックは手数を持たない');
       game = result.game;
-      turns += 1;
+      moves += 1;
+      // 1手あたり2秒たった想定で時間を進める
+      const next = core.advanceTime(game, 2000);
+      if (next.status === core.STATUS.over) {
+        assert.equal(next.overReason, core.OVER_REASON.time);
+        break;
+      }
+      game = next;
     }
-    assert.ok(turns >= 20, `cross ${size} で ${turns} 手しか遊べない`);
-    assert.equal(game.status, core.STATUS.playing, `cross ${size} で手数が尽きた`);
+    assert.ok(moves >= 20, `time ${size} で ${moves} 手しか遊べない`);
+    assert.ok(game.score >= 0);
   }
 });

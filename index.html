@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#eef6ff" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="app-build" content="Build 4" />
+<meta name="app-build" content="Build 5" />
 <meta name="description" content="LINEZAP — swap two tiles, match the target, clear the line. A one-player puzzle." />
 <link rel="icon" href="assets/linezap-appicon-1024.png" />
 <link rel="apple-touch-icon" href="assets/linezap-appicon-1024.png" />
@@ -154,7 +154,6 @@
         <span class="targetbar__key" data-i18n="target.label">目標</span>
         <b id="target-text">10</b>
       </div>
-      <div class="playlegend" id="play-legend" aria-hidden="true" hidden></div>
       <div class="combo" id="combo" role="status" aria-live="polite">
         <b id="combo-word"></b>
         <span id="combo-points"></span>
@@ -257,13 +256,14 @@
 
         <article class="howto__step">
           <div class="howto__text">
-            <h3><span class="howto__num">6</span><span data-i18n="howto.6.t">PRO：十字フリップと5×5・6×6</span></h3>
+            <h3><span class="howto__num">6</span><span data-i18n="howto.6.t">PRO：5×5・6×6 と 120秒・180秒</span></h3>
             <p data-i18n="howto.6.b"></p>
           </div>
-          <div class="diag diag--cross" aria-hidden="true">
-            <i></i><i class="on is-back">5</i><i></i>
-            <i class="on">1</i><i class="on is-center">4</i><i class="on">2</i>
-            <i></i><i class="on is-back">3</i><i></i>
+          <div class="diag diag--pro" aria-hidden="true">
+            <span class="diag__chip is-on">5×5</span>
+            <span class="diag__chip is-on">6×6</span>
+            <span class="diag__chip">120<small>s</small></span>
+            <span class="diag__chip">180<small>s</small></span>
           </div>
         </article>
 
@@ -271,7 +271,6 @@
           <svg><use href="#i-bulb"></use></svg>
           <span data-i18n="howto.tip"></span>
         </p>
-        <div class="howto__legend" id="legend-howto"></div>
       </div>
     </section>
 
@@ -291,16 +290,28 @@
         <div class="start__sizes" id="start-sizes" role="group">
           <button class="size-btn" type="button" data-size="4">
             <b>4×4</b>
-            <small data-i18n="start.free">無料</small>
+            <small class="size-btn__base"></small>
+            <small class="size-btn__tag"></small>
           </button>
-          <button class="size-btn" type="button" data-size="5" data-pro="1">
+          <button class="size-btn" type="button" data-size="5">
             <b>5×5</b>
-            <small class="size-btn__pro"><svg><use href="#i-lock"></use></svg><span data-i18n="home.pro">PRO</span></small>
+            <small class="size-btn__base"></small>
+            <small class="size-btn__tag"></small>
           </button>
-          <button class="size-btn" type="button" data-size="6" data-pro="1">
+          <button class="size-btn" type="button" data-size="6">
             <b>6×6</b>
-            <small class="size-btn__pro"><svg><use href="#i-lock"></use></svg><span data-i18n="home.pro">PRO</span></small>
+            <small class="size-btn__base"></small>
+            <small class="size-btn__tag"></small>
           </button>
+        </div>
+
+        <div class="start__times" id="start-times" hidden>
+          <p class="start__label" data-i18n="start.timeLimit">時間</p>
+          <div class="start__chips" id="start-chips" role="group">
+            <button class="time-btn" type="button" data-time="60"><b></b><small class="time-btn__tag"></small></button>
+            <button class="time-btn" type="button" data-time="120"><b></b><small class="time-btn__tag"></small></button>
+            <button class="time-btn" type="button" data-time="180"><b></b><small class="time-btn__tag"></small></button>
+          </div>
         </div>
 
         <div class="start__row">
@@ -314,7 +325,7 @@
         <p class="start__note" id="start-target-note"></p>
 
         <div class="start__stats">
-          <span><i data-i18n="start.moves">手数</i><b id="start-moves">4</b></span>
+          <span id="start-moves-wrap"><i data-i18n="start.moves">手数</i><b id="start-moves">4</b></span>
           <span><i data-i18n="start.turn">制限時間</i><b id="start-turn">10秒</b></span>
         </div>
 
@@ -362,7 +373,7 @@
         </div>
         <div class="set-row set-row--stack" id="set-target-note">
           <span data-i18n="settings.targetAtStart">消える合計はスタート画面で選べます</span>
-          <small data-i18n="settings.targetAtStartNote">4×4は10固定。5×5・6×6は12〜42（十字フリップは10〜18・12〜22）から選べます。</small>
+          <small data-i18n="settings.targetAtStartNote">4×4は10固定。5×5は基準18、6×6は基準24で、12〜42から選べます。</small>
         </div>
         <button class="set-row set-row--link" id="set-language" type="button">
           <span data-i18n="settings.language">言語</span>
@@ -483,5 +494,7 @@
 <script type="module" src="src/main.js"></script>
 <!-- 旧版（Build 3 まで）の互換メモ: 設定シートの合計ステッパー id="set-target-value" は、
      Build 4 で開始前ページ（#start-target-value）に移した。CI の古いガードがこの id を探すので控えを残す。 -->
+<!-- 旧版（Build 4 まで）の互換メモ: あそびかたの4つ目の図（class="diag diag--cross"）は
+     Build 5 で外した。CI の古いガードが 'diag--cross' を探すので控えだけ残す。 -->
 </body>
 </html>
