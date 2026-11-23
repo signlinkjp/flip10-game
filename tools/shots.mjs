@@ -223,6 +223,10 @@ async function main() {
     check('価格が出ている（¥300）', (await page.textContent('#buy-label')).includes('¥300'), await page.textContent('#buy-label'));
     check('開発用スイッチがある（Webプレビュー）', await page.isVisible('#set-dev'));
     await page.screenshot({ path: resolve(OUT, 'flip10-b1-pro.png') });
+    await page.click('#btn-buy');
+    await page.waitForTimeout(300);
+    check('Webでは購入せず案内を出す', (await page.textContent('#toast')).includes('テスト用プレビュー'), await page.textContent('#toast'));
+    check('購入ボタンは押せる状態に戻る', await page.isEnabled('#btn-buy'));
     await page.click('#set-dev');
     await page.waitForTimeout(250);
     check('解錠すると鍵が消える', (await page.$$eval('#mode-list .mode.is-locked', (nodes) => nodes.length)) === 0);
@@ -237,12 +241,14 @@ async function main() {
     check('右上の数字が見えている', peekVisible);
     const peekSample = await values(page);
     check('覗き見の数字は 0〜5', peekSample.every((t) => t.peek >= 0 && t.peek <= 5), peekSample.slice(0, 4));
+    await page.screenshot({ path: resolve(OUT, 'flip10-b1-advanced.png') });
 
     step('5×5 とタイムアタック');
     await openHome(page);
     await page.click('#mode-list [data-mode="wide"]');
     await page.waitForSelector('#screen-play.is-active');
     check('5×5 は25マス', (await page.$$eval('#board .tile', (n) => n.length)) === 25);
+    await page.screenshot({ path: resolve(OUT, 'flip10-b1-wide.png') });
     await openHome(page);
     await page.click('#mode-list [data-mode="time"] [data-time="120"]');
     await page.waitForSelector('#screen-play.is-active');
@@ -331,7 +337,7 @@ async function main() {
     const ng = checks.filter((entry) => !entry.ok).length;
     console.log(`\nFLIP 10 Build 1 — ${checks.length} checks, ${checks.length - ng} passed`);
     console.log('screenshots:');
-    for (const name of ['flip10-b1-home.png', 'flip10-b1-play.png', 'flip10-b1-howto.png', 'flip10-b1-pro.png', 'flip10-b1-play-375.png']) {
+    for (const name of ['flip10-b1-home.png', 'flip10-b1-play.png', 'flip10-b1-howto.png', 'flip10-b1-pro.png', 'flip10-b1-advanced.png', 'flip10-b1-wide.png', 'flip10-b1-play-375.png']) {
       console.log(`  ${resolve(OUT, name)}`);
     }
   } finally {

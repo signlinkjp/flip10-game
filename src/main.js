@@ -280,7 +280,7 @@ function markFlipping(indices, board) {
     setTimeout(() => {
       paintTile(node, board[i]);
       node.classList.remove('is-flipping');
-    }, 150);
+    }, 120);
   }
 }
 
@@ -335,6 +335,8 @@ function burstParticles(cells) {
   }
 }
 
+let comboHideTimer = null;
+
 function showCombo(step) {
   const node = $('#combo');
   if (!node) return;
@@ -344,6 +346,17 @@ function showCombo(step) {
   node.classList.remove('is-show');
   void node.offsetWidth;
   node.classList.add('is-show');
+  if (comboHideTimer) clearTimeout(comboHideTimer);
+  comboHideTimer = setTimeout(() => node.classList.remove('is-show'), 950);
+}
+
+/** ゲームを離れるとき、前のコンボ表示を消す（画面に戻ったときに再生されない） */
+function resetCombo() {
+  const node = $('#combo');
+  if (!node) return;
+  if (comboHideTimer) clearTimeout(comboHideTimer);
+  node.classList.remove('is-show');
+  node.textContent = '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -370,6 +383,14 @@ function updateHud() {
       score.classList.remove('is-pop');
       void score.offsetWidth;
       score.classList.add('is-pop');
+    }
+  }
+  if (game && game.score > 0) {
+    const key = currentKey();
+    if ((state.bests[key] ?? 0) < game.score) {
+      const recorded = storage.recordScore(key, game.score);
+      state.bests[key] = recorded.best;
+      updateHomeBest();
     }
   }
   const best = $('#hud-best');
@@ -431,6 +452,9 @@ function startGame(modeId, timeLimit) {
   });
   state.shownScore = 0;
   state.busy = false;
+  state.bestAtStart = state.bests[core.gameKey(state.game.modeId, state.game.timeLimit)] ?? 0;
+  resetCombo();
+  clearFlash();
   buildBoard(state.game);
   updatePlayLegend();
   showScreen('play');
@@ -464,7 +488,8 @@ function stopTimer() {
 function endRun() {
   if (!state.game || state.game.status !== core.STATUS.over) return;
   stopTimer();
-  const isNew = saveBest();
+  const isNew = state.game.score > (state.bestAtStart ?? 0);
+  saveBest();
   state.shownScore = state.game.score;
   updateHud();
 
@@ -483,6 +508,7 @@ function endRun() {
 function goHome() {
   stopTimer();
   saveBest();
+  resetCombo();
   closeSheet();
   state.game = null;
   state.busy = false;
@@ -512,7 +538,7 @@ async function onTileTap(event) {
   }
 
   markFlipping(result.flip.flipped, result.flip.board);
-  await wait(320);
+  await wait(260);
 
   let running = before;
   for (const step of result.steps) {
@@ -523,12 +549,12 @@ async function onTileTap(event) {
     running += step.points;
     state.shownScore = running;
     updateHud();
-    await wait(430);
+    await wait(340);
 
     clearFlash();
     dropTiles(step.changed, step.after);
     audio.drop();
-    await wait(300);
+    await wait(220);
   }
 
   // アニメの途中でタイムアップしていたら、その「終了」を残す
@@ -817,6 +843,9 @@ function bind() {
 function boot() {
   state.locale = storage.initialLocale(state.settings);
   const firstLaunch = !state.settings.locale;
+  if (firstLaunch) {
+    state.settings = storage.updateSettings({ ...state.settings, locale: state.locale });
+  }
   state.entitled = pro.initialEntitlement();
 
   refreshTexts();
