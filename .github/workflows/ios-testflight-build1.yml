@@ -1,6 +1,6 @@
-# FLIP 10 iOS TestFlight Build 1
+# FLIP 10 iOS TestFlight（Build 2 以降）
 # ============================================================
-# Build 1（Capacitor iOS 化・PRO 課金・12言語・音）用のワークフロー。
+# Capacitor iOS の TestFlight 配信用ワークフロー。
 # トモアキさんが Safari で GitHub に貼り付ける用。
 #
 #   .github/workflows/ios-testflight-build1.yml
@@ -13,9 +13,10 @@
 #   Actions →「FLIP 10 iOS TestFlight」→ Run workflow
 #     - confirm_bundle_id に `jp.signlink.Flip10`
 #     - upload_to_testflight は true（TestFlight へ配信）
-#   ※ ビルド番号は下の BUILD_NUMBER で管理します（Build 1 = 1）。
-#     次のビルドでは BUILD_NUMBER と iOS プロジェクトの CURRENT_PROJECT_VERSION を
-#     同じ数字に上げてください（preflight が食い違いを止めます）。
+#   ※ ビルド番号は iOS プロジェクトの CURRENT_PROJECT_VERSION から自動で読みます。
+#     Build 3 にするときは ios/App/App.xcodeproj/project.pbxproj の
+#     CURRENT_PROJECT_VERSION を 3 に上げるだけで、このワークフローは貼り替え不要です
+#     （preflight が Debug/Release の食い違いを止めます）。
 #
 # 必要な Secrets（既存リポジトリと同じ値）:
 #   APPLE_TEAM_ID                   … 例 TGBNH8WJV6
@@ -51,7 +52,6 @@ env:
   BUNDLE_ID: jp.signlink.Flip10
   APP_NAME: FLIP 10
   MARKETING_VERSION: "1.0.0"
-  BUILD_NUMBER: "1"
 
 jobs:
   preflight:
@@ -73,10 +73,19 @@ jobs:
           set -euo pipefail
           test "$CONFIRM" = "$BUNDLE_ID"
 
+      - name: Read the build number from the iOS project
+        run: |
+          set -euo pipefail
+          BUILD=$(grep -oE 'CURRENT_PROJECT_VERSION = [0-9]+;' ios/App/App.xcodeproj/project.pbxproj | grep -oE '[0-9]+' | sort -u)
+          test -n "$BUILD" || { echo "::error::CURRENT_PROJECT_VERSION が見つかりません"; exit 1; }
+          test "$(echo "$BUILD" | wc -l)" -eq 1 || { echo "::error::Debug/Release のビルド番号が食い違っています: $BUILD"; exit 1; }
+          echo "BUILD_NUMBER=$BUILD" >> "$GITHUB_ENV"
+          echo "FLIP 10 Build $BUILD"
+
       - name: Install web dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Run the FLIP 10 rule and Build 1 tests
+      - name: Run the FLIP 10 rule and Build 2 tests
         run: npm test
 
       - name: Guard the shipped game files
@@ -89,18 +98,25 @@ jobs:
           node --check src/storage.js
           node --check src/main.js
           # 基本ルール: 表と裏は足して5 / ラインは合計10で消える
+          # メインのルール: 2マス入れ替え / 9〜40 / 手数ライフ / 十字フリップ
           grep -q "PAIR_SUM = 5" src/core.js
           grep -q "DEFAULT_TARGET = 10" src/core.js
-          grep -q "export function flipBoard" src/core.js
+          grep -q "MAX_TARGET = 40" src/core.js
+          grep -q "MAX_MOVES = 7" src/core.js
+          grep -q "export function swapTiles" src/core.js
+          grep -q "export function flipAt" src/core.js
+          grep -q "export function findPlayableSwap" src/core.js
           grep -q "export function findClears" src/core.js
+          grep -q "export function digitPool" src/core.js
           # ＋の字（上下左右）であること
           grep -q "index - size" src/core.js
           grep -q "index + size" src/core.js
           grep -q "index - 1" src/core.js
           grep -q "index + 1" src/core.js
-          # 4×4 無料 / 5×5・上級・タイムアタックは PRO
+          # 4×4 無料 / 5×5・十字フリップ・タイムアタックは PRO
           grep -q "id: 'classic'" src/core.js
           grep -q "id: 'wide'" src/core.js
+          grep -q "id: 'cross'" src/core.js
           grep -q "TIME_LIMITS" src/core.js
           grep -q "PRODUCT_ID = 'jp.signlink.Flip10.pro'" src/pro.js
           grep -q "export function canPlayMode" src/pro.js
@@ -113,14 +129,35 @@ jobs:
           grep -q "navigatorLike.audioSession" src/audio.js
           grep -q "SILENT_WAV" src/audio.js
           grep -q "FlipAudio" src/audio.js
+          grep -q "function pause()" src/audio.js
+          grep -q "ctx.suspend()" src/audio.js
+          # バイブ（Haptics）
+          test -f src/haptics.js
+          grep -q "FlipHaptics" src/haptics.js
+          grep -q "window.__flipPauseAudio" src/main.js
+          grep -q "UIImpactFeedbackGenerator" ios/App/App/AppDelegate.swift
+          grep -q "UINotificationFeedbackGenerator" ios/App/App/AppDelegate.swift
+          grep -q "jsName = \"FlipHaptics\"" ios/App/App/AppDelegate.swift
+          grep -q "registerPluginInstance(FlipHapticsPlugin())" ios/App/App/AppDelegate.swift
           # 個人情報の入力欄が無い（オフライン1人プレイ）
           ! grep -qi '<textarea' index.html
           ! grep -qi '<input' index.html
           grep -q -- '-webkit-touch-callout' styles.css
           grep -q 'viewport-fit=cover' index.html
           grep -q 'env(safe-area-inset-top' styles.css
-          # あそびかた（4ステップ）とプライバシー全文
+          # あそびかた（5ステップ）とプライバシー全文 / 明るいテーマ・文字サイズ・合計バッジ
           grep -q 'data-sheet="howto"' index.html
+          grep -q 'diag--swap' index.html
+          grep -q 'diag--moves' index.html
+          grep -q 'diag--cross' index.html
+          grep -q 'id="sums-rows"' index.html
+          grep -q 'id="sums-cols"' index.html
+          grep -q 'id="set-haptic"' index.html
+          grep -q 'id="set-text-size"' index.html
+          grep -q 'id="btn-settings-play"' index.html
+          grep -q 'id="btn-hint"' index.html
+          grep -q "html\[data-text='xl'\]" styles.css
+          grep -q -- '--bg: #f1f8ff' styles.css
           grep -q 'data-sheet="privacy"' index.html
           test -f docs/privacy.md
           grep -q 'データを収集しません' docs/privacy.md
@@ -157,13 +194,15 @@ jobs:
           test -f ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme
           test ! -d ios/App/App/public
           grep -q 'PRODUCT_BUNDLE_IDENTIFIER = jp.signlink.Flip10;' ios/App/App.xcodeproj/project.pbxproj
-          grep -q 'CURRENT_PROJECT_VERSION = 1;' ios/App/App.xcodeproj/project.pbxproj
+          grep -q 'CURRENT_PROJECT_VERSION = ' ios/App/App.xcodeproj/project.pbxproj
           grep -q 'import StoreKit' ios/App/App/AppDelegate.swift
           grep -q 'import AVFoundation' ios/App/App/AppDelegate.swift
           grep -q 'jsName = "StoreKit"' ios/App/App/AppDelegate.swift
           grep -q 'jsName = "FlipAudio"' ios/App/App/AppDelegate.swift
           grep -q 'jp.signlink.Flip10.pro' ios/App/App/AppDelegate.swift
           grep -q 'setCategory(.playback' ios/App/App/AppDelegate.swift
+          grep -q 'applicationWillResignActive' ios/App/App/AppDelegate.swift
+          grep -q 'setActive(false' ios/App/App/AppDelegate.swift
           grep -q 'FlipBridgeViewController' ios/App/App/SceneDelegate.swift
           python3 - <<'PY'
           import os, plistlib, pathlib
@@ -210,6 +249,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Read the build number from the iOS project
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD=$(grep -oE 'CURRENT_PROJECT_VERSION = [0-9]+;' ios/App/App.xcodeproj/project.pbxproj | grep -oE '[0-9]+' | sort -u)
+          test -n "$BUILD"
+          test "$(echo "$BUILD" | wc -l)" -eq 1
+          echo "BUILD_NUMBER=$BUILD" >> "$GITHUB_ENV"
+          echo "FLIP 10 Build $BUILD"
 
       - name: Write the App Store Connect key
         shell: bash
@@ -354,7 +403,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: flip10-testflight-build1-evidence
+          name: flip10-testflight-build2-evidence
           path: |
             build/release/*.log
             build/release/*.json
