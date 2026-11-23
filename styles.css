@@ -823,6 +823,12 @@ svg {
   color: var(--gold-ink);
 }
 
+.mode__sizes svg {
+  width: 9px;
+  height: 9px;
+  color: var(--gold-ink);
+}
+
 .mode__badge {
   display: inline-flex;
   align-items: center;

@@ -212,7 +212,7 @@ function buildModes() {
         </span>
         <span class="mode__desc">${i18n.t(`mode.${config.id}.desc`, state.locale)}</span>
         ${config.pro ? '' : `<span class="mode__sizes" aria-hidden="true">${proSizes
-          .map((size) => `<b>${size}×${size}<i>PRO</i></b>`)
+          .map((size) => `<b>${state.entitled ? '' : icon('lock')}${size}×${size}<i>PRO</i></b>`)
           .join('')}</span>`}
         ${config.id === 'cross' ? `<span class="mode__pairs" aria-hidden="true">${core
           .pairLegend()
