@@ -10,7 +10,7 @@
  *   preview     Web プレビュー — 開発確認用のスイッチで開ける（課金なし）
  */
 
-import { MODES, modeById } from './core.js';
+import { MODES, modeById, needsProSize, sizesFor } from './core.js';
 import { LOCALES } from './i18n.js';
 
 export const PRODUCT_ID = 'jp.signlink.Flip10.pro';
@@ -20,21 +20,41 @@ export const STORE_KEY = 'flip10.pro.v1';
 /** 開発確認用スイッチ（preview のときだけ意味を持つ。端末の localStorage に残る） */
 export const PREVIEW_KEY = 'flip10.pro.preview.v1';
 
-/** PRO で開くモードと、無料で遊べるモード（UI もテストもこの2つだけを見る） */
+/**
+ * PRO の線引き（Build 4）
+ *   classic … 4×4 は無料、5×5 / 6×6 は PRO
+ *   cross   … 4×4 / 5×5 / 6×6 すべて PRO
+ *   time    … 60秒 / 120秒 ともに PRO
+ * モード全体が PRO かどうかは `mode.pro`、サイズ単位は core.needsProSize() が見る。
+ */
 export const FREE_MODES = Object.freeze(MODES.filter((mode) => !mode.pro).map((mode) => mode.id));
 export const PRO_MODES = Object.freeze(MODES.map((mode) => mode.id));
 
+/** そのモード自体が PRO か（十字フリップ・タイムアタック） */
 export function needsPro(modeId) {
   return modeById(modeId).pro === true;
 }
 
-export function canPlayMode(entitled, modeId) {
-  return !needsPro(modeId) || entitled === true;
+/** そのモード・サイズを遊ぶのに PRO が要るか */
+export function needsProFor(modeId, size) {
+  return needsProSize(modeId, size);
 }
 
-/** その解錠状態で選べるモード */
+/** その解錠状態で、そのモード・サイズを遊べるか */
+export function canPlayMode(entitled, modeId, size) {
+  const mode = modeById(modeId);
+  const boardSize = size === undefined ? mode.sizes[0] : size;
+  return entitled === true || !needsProSize(mode.id, boardSize);
+}
+
+/** その解錠状態で選べるモード（サイズを問わず1つでも遊べるモード） */
 export function modesFor(entitled) {
-  return MODES.filter((mode) => canPlayMode(entitled, mode.id)).map((mode) => mode.id);
+  return MODES.filter((mode) => sizesFor(mode.id).some((size) => canPlayMode(entitled, mode.id, size))).map((mode) => mode.id);
+}
+
+/** その解錠状態で選べるサイズ */
+export function sizesForEntitled(modeId, entitled) {
+  return sizesFor(modeId).filter((size) => canPlayMode(entitled, modeId, size));
 }
 
 /** StoreKit の displayPrice が来る前の表示（日本は ¥300 固定のプレースホルダ） */

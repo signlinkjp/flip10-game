@@ -1,5 +1,5 @@
 /* ============================================================
-   LINEZAP — styles (Build 3)
+   LINEZAP — styles (Build 4)
    明るいポップなライトテーマ。iPhone（375 / 393px）基準。
    青＝選んだマス / 金＝消えるライン / 水色〜ミントの背景。
    文字サイズは html[data-text] で 標準 / 大きめ / 特大 の3段階。
@@ -471,8 +471,101 @@ svg {
   height: 40px;
 }
 
-.icon-btn--hint.is-off {
+.icon-btn--hint {
+  position: relative;
+}
+
+.icon-btn--hint.is-off,
+.icon-btn--hint.is-spent {
   opacity: 0.4;
+}
+
+/* ヒントのコスト（エンドレス系だけ −2 を出す） */
+.icon-btn__cost {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  font-style: normal;
+  font-size: 0.5rem;
+  line-height: 1;
+  font-weight: 900;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #4a2c00;
+  box-shadow: 0 1px 4px rgba(21, 32, 70, 0.22);
+}
+
+.pill__cost {
+  font-style: normal;
+  font-size: 0.55rem;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--gold-soft);
+  color: var(--gold-ink);
+}
+
+/* 制限時間バー（エンドレス系・HUD の下） */
+.turnbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 5px;
+}
+
+.turnbar__key {
+  flex: none;
+  font-size: 0.52rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.turnbar__track {
+  flex: 1;
+  min-width: 0;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(21, 32, 70, 0.1);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(21, 32, 70, 0.12);
+}
+
+.turnbar__track i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--mint), #6a9dff);
+  transform-origin: left center;
+  transition: transform 0.12s linear, background 0.2s ease;
+}
+
+.turnbar__time {
+  flex: none;
+  min-width: 48px;
+  text-align: right;
+  font-size: 0.92rem;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.turnbar__time small {
+  font-size: 0.6rem;
+  margin-left: 1px;
+  color: var(--muted);
+}
+
+.turnbar.is-urgent .turnbar__track i {
+  background: linear-gradient(90deg, #ff9f6b, var(--danger));
+}
+
+.turnbar.is-urgent .turnbar__time {
+  color: var(--danger);
+  animation: urgent 0.9s ease-in-out infinite;
 }
 
 /* ---------------------------- home ---------------------------- */
@@ -700,6 +793,34 @@ svg {
   font-weight: 900;
   color: var(--blue);
   margin: 0 1px;
+}
+
+/* クラシックの中に入った PRO サイズ（5×5・6×6）の目印 */
+.mode__sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.mode__sizes b {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  font-size: 0.54rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.mode__sizes i {
+  font-style: normal;
+  font-size: 0.46rem;
+  font-weight: 900;
+  color: var(--gold-ink);
 }
 
 .mode__badge {
@@ -2290,6 +2411,14 @@ html[data-text='xl'] .mode__badge svg {
   font-variant-numeric: tabular-nums;
 }
 
+.result__reason {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 .result__record {
   display: inline-block;
   margin: 0 0 12px;
@@ -2468,6 +2597,249 @@ html[data-text='xl'] .mode__badge svg {
 
   .board-wrap.is-6 .sum {
     font-size: 0.56rem;
+  }
+}
+
+/* ---------------------------- 開始前ページ（Build 4） ---------------------------- */
+
+.sheet--start .sheet__body {
+  padding-bottom: 18px;
+}
+
+.start {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.start__label {
+  margin: 0;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.start__sizes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.size-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 11px 4px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  background: var(--card-2);
+  color: var(--ink);
+  font-weight: 900;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.size-btn:active {
+  transform: scale(0.96);
+}
+
+.size-btn b {
+  font-size: 1.02rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.size-btn small {
+  font-size: 0.54rem;
+  font-weight: 800;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.size-btn.is-on {
+  border-color: var(--blue);
+  background: linear-gradient(180deg, #ffffff, #dceaff);
+  box-shadow: 0 6px 16px rgba(47, 107, 255, 0.18);
+}
+
+.size-btn.is-locked {
+  opacity: 0.55;
+}
+
+.size-btn__pro {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--gold-ink) !important;
+}
+
+.size-btn__pro svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* PRO を買ってあるときは鍵を出さない（タグの「PRO」だけ残す） */
+.size-btn.is-owned .size-btn__pro svg {
+  display: none;
+}
+
+.start__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.stepper--start b {
+  min-width: 40px;
+  font-size: 1.05rem;
+}
+
+.start__note {
+  margin: -2px 0 0;
+  font-size: 0.64rem;
+  line-height: 1.5;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.start__stats {
+  display: flex;
+  gap: 8px;
+}
+
+.start__stats span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 6px;
+  border-radius: 14px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+}
+
+.start__stats i {
+  font-style: normal;
+  font-size: 0.54rem;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.start__stats b {
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+#btn-start {
+  margin-top: 2px;
+}
+
+#btn-start small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+/* あそびかたの図（Build 4 で増えた3つ） */
+.diag--modes {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag__chip {
+  width: 52px;
+  padding: 3px 0;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 0.6rem;
+  font-weight: 900;
+  color: var(--muted);
+  background: #ffffff;
+  border: 1px solid var(--line);
+}
+
+.diag__chip.is-on {
+  color: var(--blue-deep);
+  border-color: var(--blue);
+  background: linear-gradient(180deg, #ffffff, #dceaff);
+}
+
+.diag--timer {
+  flex-direction: column;
+  gap: 7px;
+}
+
+.diag--timer .pips {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.diag--timer .pips i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #6a9dff, var(--blue));
+}
+
+.diag__bar {
+  display: block;
+  width: 62px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(21, 32, 70, 0.12);
+  overflow: hidden;
+}
+
+.diag__bar i {
+  display: block;
+  width: 62%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--mint), #6a9dff);
+}
+
+.diag--timer b {
+  font-size: 0.7rem;
+  font-weight: 900;
+  color: var(--blue-deep);
+}
+
+.diag--hint {
+  flex-direction: column;
+  gap: 2px;
+  color: var(--gold);
+}
+
+.diag--hint svg {
+  width: 22px;
+  height: 22px;
+}
+
+.diag--hint b {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: var(--gold-ink);
+}
+
+@media (max-height: 700px) {
+  .start {
+    gap: 9px;
+  }
+
+  .size-btn {
+    padding: 8px 4px;
   }
 }
 

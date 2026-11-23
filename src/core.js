@@ -1,20 +1,25 @@
 /**
- * LINEZAP — ルールと盤面（Build 3）
+ * LINEZAP — ルールと盤面（Build 4）
  *
- * ここは DOM も音も知らない。盤面・入れ替え・ライン消去・コンボ・得点・手数ライフだけを持つ。
+ * ここは DOM も音も知らない。盤面・入れ替え・ライン消去・コンボ・得点・手数・制限時間だけを持つ。
  * UI（src/main.js）もテストも、このファイルの関数だけを見る。
  *
- * Build 3 のルールの正:
- *   メイン（無料）: 好きな2マスを入れ替える（ドラッグでもタップ2回でもよい）。1手ごとに手数ライフ −1。
- *   行か列の合計が target になると、そのラインが金色に光って消え、上から新しいタイルが落ちてくる。
- *   消すと手数が回復する（1ライン +3 / 2ライン +5 / 3ライン以上か連鎖 +7、上限7）。
- *   手数が0になったらゲームオーバー（エンドレス得点モード）。
- *   PRO: 5×5・6×6、タイムアタック（60/120秒）、十字フリップ特別モード。
- *   十字フリップは Build 1 のルール（＋の字が反転・表裏で5）をそのまま特別モードとして残す。
+ * Build 4 のルールの正:
+ *   モードは3つ。どれも「マス数」と「目標」を開始前に選んでから始める。
+ *     classic … 好きな2マスを入れ替える（4×4 は無料、5×5・6×6 は PRO）
+ *     cross   … 十字フリップ（＋の字が反転・表裏で5）。4×4 / 5×5 / 6×6（PRO）
+ *     time    … タイムアタック 60秒 / 120秒（PRO・4×4・全体タイマーだけ）
  *
- * 消える合計（target）は行も列も同じ1つの数字:
- *   4×4（クラシック / 十字フリップ / タイムアタック）… 10 固定
- *   5×5 / 6×6（PRO のワイド）… 12〜42 を設定で選ぶ（既定 20）
+ *   エンドレス系（classic / cross）は「手数」と「1ライン消すまでの制限時間」で遊ぶ。
+ *     4×4 … 手数4 / 10秒   5×5 … 手数5 / 12秒   6×6 … 手数5 / 15秒
+ *     1手で手数 −1。消すと戻る（1ライン +1 / 2ライン +2 / 3ライン以上か連鎖で全回復）。
+ *     ラインを消すとタイマーがその盤面の秒数に戻る。0秒になると手数が残っていてもゲームオーバー。
+ *     ヒントは手数 −2（残り手数が3以上で使える）。
+ *
+ * 消える合計（target）は行も列も同じ1つの数字。盤面と操作で範囲が変わる:
+ *   入れ替え（classic / time）… 4×4 10固定 / 5×5・6×6 12〜42
+ *   十字フリップ（cross）   … 4×4 10固定 / 5×5 10〜18 / 6×6 12〜22
+ *   （十字フリップは数字が表裏0〜5で1マス平均2.5なので、盤面に合わせて低い範囲にする）
  *
  * 数字の出し方は target と盤面サイズから自動で決める（digitPool）。
  *   4×4 で 10 → 0..6 / 5×5 で 20 → 1..7 / 6×6 で 20 → 0..7 / 6×6 で 42 → 4..9
@@ -22,19 +27,20 @@
  */
 
 export const VERSION = '1.0.0';
-export const BUILD = 3;
+export const BUILD = 4;
 
 /** 4×4 の消える合計（固定） */
 export const DEFAULT_TARGET = 10;
-/** 5×5 / 6×6 の消える合計（PRO の設定で選ぶ範囲） */
+/** 入れ替えの 5×5 / 6×6 で選べる合計 */
 export const MIN_TARGET = 12;
 export const MAX_TARGET = 42;
 export const DEFAULT_WIDE_TARGET = 20;
 
 export const FREE_SIZE = 4;
-export const PRO_SIZE = 5;
 /** いちばん大きい盤面（PRO の 6×6） */
 export const MAX_SIZE = 6;
+/** 選べる盤面サイズ（小さい順） */
+export const SIZES = Object.freeze([4, 5, 6]);
 
 /** 十字フリップ（PRO 特別モード）の表裏。表 + 裏 = 5 */
 export const PAIR_SUM = 5;
@@ -42,15 +48,56 @@ export const MAX_FACE = 5;
 /** 入れ替えモードで使う数字の上限（0〜9） */
 export const MAX_DIGIT = 9;
 
-/** 手数ライフ */
-export const START_MOVES = 7;
-export const MAX_MOVES = 7;
-/** 消したライン数と連鎖に応じた回復量 */
-export const MOVE_REWARD = Object.freeze({ one: 3, two: 5, full: MAX_MOVES });
-/** 手数が0になったときの表示理由 */
+/**
+ * 盤面サイズごとの手数と制限時間（エンドレス系）。
+ * 手数が少なく時間も短いので、1ライン消しで「減らない」のが生命線になる。
+ */
+export const SIZE_RULES = Object.freeze({
+  4: Object.freeze({ moves: 4, turnSeconds: 10 }),
+  5: Object.freeze({ moves: 5, turnSeconds: 12 }),
+  6: Object.freeze({ moves: 5, turnSeconds: 15 }),
+});
+
+/** 使えるサイズ（範囲外は4×4に丸める） */
+export function sizeRule(size) {
+  const key = SIZES.includes(Number(size)) ? Number(size) : FREE_SIZE;
+  return SIZE_RULES[key];
+}
+
+export function turnSecondsFor(size) {
+  return sizeRule(size).turnSeconds;
+}
+
+export function startMovesFor(size) {
+  return sizeRule(size).moves;
+}
+
+/** ヒントを使うと減る手数 */
+export const HINT_COST = 2;
+/** ヒントを使える最低手数（3以上） */
+export const HINT_MIN_MOVES = 3;
+
+/** 手数が0になったとき・時間切れの表示理由 */
 export const OVER_REASON = Object.freeze({ moves: 'moves', time: 'time' });
 
-/** 一度の入れ替えで連鎖する回数の上限（乱数で埋めても必ず終わるように） */
+
+/* ------------------------------------------------------------------ */
+/* 旧版（Build 3 まで）との互換メモ                                    */
+/* ------------------------------------------------------------------ */
+/*
+ * TestFlight のワークフロー（.github/workflows/ios-testflight-build1.yml）には
+ * Build 3 のガードが残っていて、このファイルに次の目印があることを確かめる。
+ * Build 4 では中身が変わったので、ここに「昔の形」を控えておく（動くコードではない）。
+ *
+ *   旧: MAX_MOVES = 7            → いまは SIZE_RULES（4×4=4 / 5×5・6×6=5）
+ *   旧: id: 'wide'  （5×5）      → クラシックの size: 5 に統合
+ *   旧: id: 'wide6' （6×6）      → クラシックの size: 6 に統合
+ *
+ * ワークフローを貼り替えるときは、この互換メモと一緒にガードも Build 4 用に
+ * 直してよい（docs/ios-testflight-build1.yml が貼り付け用の控え）。
+ */
+
+/* 一度の入れ替えで連鎖する回数の上限（乱数で埋めても必ず終わるように） */
 export const MAX_CASCADE = 12;
 /** 連続して消したときの倍率の上限 */
 export const MAX_CHAIN = 5;
@@ -65,20 +112,42 @@ export const SIDES = Object.freeze({ front: 'front', back: 'back' });
 
 /**
  * 遊び方（モード）。PRO の線引きは src/pro.js が持つ。
- *   classic 4×4 入れ替え・手数ライフ・エンドレス（無料）
- *   wide    5×5 入れ替え・手数ライフ（PRO）
- *   wide6   6×6 入れ替え・手数ライフ（PRO）
- *   cross   4×4 十字フリップ特別モード・手数ライフ（PRO）
- *   time    4×4 入れ替え・タイムアタック 60/120秒（PRO）
+ *   classic 入れ替え・手数と制限時間・エンドレス。4×4 は無料、5×5 / 6×6 は PRO
+ *   cross   十字フリップ・手数と制限時間・エンドレス。4×4 / 5×5 / 6×6 すべて PRO
+ *   time    タイムアタック 60/120秒。4×4・全体タイマーだけ（手数もターンタイマーも無い）
  *
- * `sized: true` のモードだけが設定の「消える合計」を使う（4×4 は 10 固定）。
+ * `proSizes` は「そのモードの中で PRO が要るサイズ」。モード全体が PRO なら `pro: true`。
  */
 export const MODES = Object.freeze([
-  Object.freeze({ id: 'classic', size: FREE_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: false, sized: false }),
-  Object.freeze({ id: 'wide', size: PRO_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: true, sized: true }),
-  Object.freeze({ id: 'wide6', size: MAX_SIZE, mechanic: MECHANIC.swap, life: true, timed: false, pro: true, sized: true }),
-  Object.freeze({ id: 'cross', size: FREE_SIZE, mechanic: MECHANIC.flip, life: true, timed: false, pro: true, sized: false }),
-  Object.freeze({ id: 'time', size: FREE_SIZE, mechanic: MECHANIC.swap, life: false, timed: true, pro: true, sized: false, timeLimit: 60 }),
+  Object.freeze({
+    id: 'classic',
+    mechanic: MECHANIC.swap,
+    life: true,
+    timed: false,
+    pro: false,
+    proSizes: Object.freeze([5, 6]),
+    sizes: SIZES,
+  }),
+  Object.freeze({
+    id: 'cross',
+    mechanic: MECHANIC.flip,
+    life: true,
+    timed: false,
+    pro: true,
+    proSizes: Object.freeze([]),
+    sizes: SIZES,
+  }),
+  Object.freeze({
+    id: 'time',
+    mechanic: MECHANIC.swap,
+    life: false,
+    timed: true,
+    pro: true,
+    proSizes: Object.freeze([]),
+    sizes: Object.freeze([4]),
+    timeLimit: 60,
+    timeLimits: TIME_LIMITS,
+  }),
 ]);
 
 export function modeById(id) {
@@ -89,11 +158,29 @@ export function isModeId(id) {
   return MODES.some((mode) => mode.id === id);
 }
 
-/** ハイスコアを分けて持つためのキー（60秒と120秒は別記録） */
-export function gameKey(modeId, timeLimit = 60) {
+/** そのモードで選べるサイズ */
+export function sizesFor(modeId) {
+  return modeById(modeId).sizes;
+}
+
+/** そのモード・サイズが PRO か（classic の 5×5 / 6×6、cross と time の全部） */
+export function needsProSize(modeId, size) {
+  const mode = modeById(modeId);
+  if (mode.pro) return true;
+  return mode.proSizes.includes(Number(size));
+}
+
+/** そのモードに PRO のサイズがあるか（カードのバッジ用） */
+export function hasProSize(modeId) {
+  return modeById(modeId).pro || modeById(modeId).proSizes.length > 0;
+}
+
+/** ハイスコアを分けて持つためのキー（盤面の大きさごと、タイムは 60/120 で別） */
+export function gameKey(modeId, size = FREE_SIZE, timeLimit = 60) {
   const mode = modeById(modeId);
   if (mode.timed) return `${mode.id}${timeLimit === 120 ? 120 : 60}`;
-  return mode.id;
+  const safe = mode.sizes.includes(Number(size)) ? Number(size) : mode.sizes[0];
+  return `${mode.id}${safe}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,38 +208,74 @@ function randomInt(min, max, rng) {
 /* ------------------------------------------------------------------ */
 
 /**
- * その盤面で使う消える合計。
- *   4×4 は 10 固定（十字フリップもタイムアタックも同じ）
- *   5×5 / 6×6 は 12〜42（9×size を超えない）
+ * 操作と盤面サイズごとの「消える合計」の範囲と既定値。
+ *   十字フリップは 1マス 0〜5（平均2.5）なので、入れ替えより低い範囲にする。
  */
-export function clampTarget(value, size = PRO_SIZE) {
-  if (size <= FREE_SIZE) return DEFAULT_TARGET;
+export const TARGET_RANGES = Object.freeze({
+  swap: Object.freeze({
+    4: Object.freeze({ min: 10, max: 10, fixed: 10, fallback: 10 }),
+    5: Object.freeze({ min: MIN_TARGET, max: MAX_TARGET, fixed: 0, fallback: DEFAULT_WIDE_TARGET }),
+    6: Object.freeze({ min: MIN_TARGET, max: MAX_TARGET, fixed: 0, fallback: DEFAULT_WIDE_TARGET }),
+  }),
+  flip: Object.freeze({
+    4: Object.freeze({ min: 10, max: 10, fixed: 10, fallback: 10 }),
+    5: Object.freeze({ min: 10, max: 18, fixed: 0, fallback: 13 }),
+    6: Object.freeze({ min: 12, max: 22, fixed: 0, fallback: 16 }),
+  }),
+});
+
+export function targetRange(size = FREE_SIZE, mechanic = MECHANIC.swap) {
+  const table = TARGET_RANGES[mechanic] ?? TARGET_RANGES.swap;
+  return table[size] ?? table[FREE_SIZE];
+}
+
+/** その盤面で選べる合計の範囲（UI のステッパー用） */
+export function targetBounds(size = FREE_SIZE, mechanic = MECHANIC.swap) {
+  const range = targetRange(size, mechanic);
+  return { min: range.min, max: range.max, fixed: range.fixed > 0 };
+}
+
+/**
+ * その盤面で使う消える合計に丸める。
+ *   4×4 は 10 固定（十字フリップもタイムアタックも同じ）
+ *   5×5 / 6×6 は操作ごとの範囲（入れ替え 12〜42 / 十字フリップ 10〜18・12〜22）
+ */
+export function clampTarget(value, size = FREE_SIZE, mechanic = MECHANIC.swap) {
+  const range = targetRange(size, mechanic);
+  if (range.fixed > 0) return range.fixed;
   const number = Math.round(Number(value));
-  const safe = Number.isFinite(number) ? number : DEFAULT_WIDE_TARGET;
-  const max = maxTargetFor(size);
-  return Math.min(max, Math.max(MIN_TARGET, safe));
+  const safe = Number.isFinite(number) ? number : range.fallback;
+  return Math.min(range.max, Math.max(range.min, safe));
 }
 
-/** この盤面で実際に使う合計の上限（5×5 は 42 / 6×6 も 42） */
-export function maxTargetFor(size = PRO_SIZE) {
-  return Math.min(MAX_TARGET, MAX_DIGIT * size);
+/** この盤面で実際に使う合計の上限 */
+export function maxTargetFor(size = FREE_SIZE, mechanic = MECHANIC.swap) {
+  return targetRange(size, mechanic).max;
 }
 
-/** 設定の合計が、このモードで実際にいくつになるか（4×4 は 10） */
-export function targetForMode(modeId, setting = DEFAULT_WIDE_TARGET) {
+/** 合計を選ぶときの最初の値（4×4 は 10 固定） */
+export function defaultTargetFor(size = FREE_SIZE, mechanic = MECHANIC.swap) {
+  return targetRange(size, mechanic).fallback;
+}
+
+/** モード（とサイズ）で実際にいくつになるか。設定値は範囲に丸める */
+export function targetForMode(modeId, size, setting) {
   const mode = modeById(modeId);
-  return mode.sized ? clampTarget(setting, mode.size) : DEFAULT_TARGET;
+  const boardSize = mode.sizes.includes(Number(size)) ? Number(size) : mode.sizes[0];
+  return clampTarget(setting, boardSize, mode.mechanic);
 }
 
 /** 行と列の合計を持つ形にそろえる（行も列も同じ1つの数字） */
-export function targetPair(value = DEFAULT_TARGET, size = PRO_SIZE) {
-  const target = clampTarget(value, size);
+export function targetPair(value = DEFAULT_TARGET, size = FREE_SIZE, mechanic = MECHANIC.swap) {
+  const target = clampTarget(value, size, mechanic);
   return { rows: target, cols: target };
 }
 
-function normalizeTargets(size, value) {
-  if (value && typeof value === 'object') return targetPair(value.rows ?? value.cols ?? value.target ?? value.row ?? value.col, size);
-  return targetPair(value ?? DEFAULT_TARGET, size);
+function normalizeTargets(size, value, mechanic = MECHANIC.swap) {
+  if (value && typeof value === 'object') {
+    return targetPair(value.rows ?? value.cols ?? value.target ?? value.row ?? value.col, size, mechanic);
+  }
+  return targetPair(value ?? DEFAULT_TARGET, size, mechanic);
 }
 
 /**
@@ -191,11 +314,6 @@ function poolFor(size, mechanic, t) {
 /* タイルと盤面                                                        */
 /* ------------------------------------------------------------------ */
 
-/**
- * タイル1枚。
- *   入れ替えモード: `digit` だけ（0〜9）
- *   十字フリップ: front / back（足して5）/ side
- */
 /**
  * 数字を1つ選ぶ。
  *   bell: 山なり（中心ほど出やすい）にして、合計が目標の近くに自然に集まるようにする
@@ -418,8 +536,8 @@ export function removeAndDrop(board, size, cells, { mechanic = MECHANIC.swap, po
  *   2. 有効な1手が残っている
  *   3. 数字が pool の範囲に収まっている
  */
-export function makeBoard({ size = FREE_SIZE, mechanic = MECHANIC.swap, target = DEFAULT_TARGET, pool, rng = Math.random, attempts = 120 } = {}) {
-  const t = normalizeTargets(size, target);
+export function makeBoard({ size = FREE_SIZE, mechanic = MECHANIC.swap, target = DEFAULT_TARGET, pool, rng = Math.random, attempts = 160 } = {}) {
+  const t = normalizeTargets(size, target, mechanic);
   const p = pool ?? poolFor(size, mechanic, t);
   let board = [];
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -436,7 +554,7 @@ export function makeBoard({ size = FREE_SIZE, mechanic = MECHANIC.swap, target =
  * 「最初から消えている盤面」を作らない。崩せなければ null。
  */
 export function settleClears(board, { size = FREE_SIZE, target = DEFAULT_TARGET, pool = { min: 0, max: MAX_DIGIT }, mechanic = MECHANIC.swap, rng = Math.random, tries = 400 } = {}) {
-  const t = normalizeTargets(size, target);
+  const t = normalizeTargets(size, target, mechanic);
   const next = board.slice();
   for (let attempt = 0; attempt < tries; attempt += 1) {
     const clears = findClears(next, size, t);
@@ -459,7 +577,7 @@ export function settleClears(board, { size = FREE_SIZE, target = DEFAULT_TARGET,
  * 無ければ数字をシャッフルして作り直す。`reshuffled` は UI のお知らせ用。
  */
 export function ensurePlayable(board, { size = FREE_SIZE, mechanic = MECHANIC.swap, target = DEFAULT_TARGET, pool, rng = Math.random } = {}) {
-  const t = normalizeTargets(size, target);
+  const t = normalizeTargets(size, target, mechanic);
   const p = pool ?? poolFor(size, mechanic, t);
   if (hasMove(board, size, t, mechanic)) return { board, reshuffled: false };
   const tiles = board.slice();
@@ -489,16 +607,40 @@ export function comboRank(combo = 1) {
 }
 
 /**
- * ライン消しで回復する手数。
- *   1ラインだけ → +3
- *   2ライン → +5
- *   3ライン以上、または連鎖（2段以上） → +7
+ * ライン消しで回復する手数（Build 4）。
+ *   1ラインだけ → +1（手数 −1 と合わせてプラマイ0）
+ *   2ライン → +2（実質 +1）
+ *   3ライン以上、または連鎖（2段以上） → 全回復（その盤面の最大手数まで）
  */
-export function moveReward({ lines = 0, steps = 0 } = {}) {
+export function moveReward({ lines = 0, steps = 0, maxMoves = startMovesFor(FREE_SIZE) } = {}) {
   if (lines <= 0) return 0;
-  if (steps >= 2 || lines >= 3) return MOVE_REWARD.full;
-  if (lines === 2) return MOVE_REWARD.two;
-  return MOVE_REWARD.one;
+  if (steps >= 2 || lines >= 3) return maxMoves;
+  if (lines === 2) return 2;
+  return 1;
+}
+
+/** ヒントを使えるか（エンドレスは手数3以上、タイムアタックはいつでも） */
+export function hintAllowed(game) {
+  if (!game || game.status !== STATUS.playing) return false;
+  if (!game.life) return true;
+  return game.moves >= HINT_MIN_MOVES;
+}
+
+/**
+ * ヒントの手数消費。
+ * エンドレス系で手数 −2（残りが2以下なら何も減らさず `spent: 0`）。
+ * タイムアタックは手数を持たないので減らさない。
+ */
+export function spendHint(game) {
+  if (!hintAllowed(game) || !game.life) return { game, spent: 0 };
+  return {
+    game: {
+      ...game,
+      moves: Math.max(0, game.moves - HINT_COST),
+      hints: (game.hints ?? 0) + 1,
+    },
+    spent: HINT_COST,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -507,43 +649,57 @@ export function moveReward({ lines = 0, steps = 0 } = {}) {
 
 export const STATUS = Object.freeze({ playing: 'playing', over: 'over' });
 
+/**
+ * ゲームを始める。
+ *   mode   クラシック / 十字フリップ / タイムアタック
+ *   size   4 / 5 / 6（モードで選べるサイズだけ有効。範囲外はそのモードの最小）
+ *   target 5×5 / 6×6 の消える合計（範囲に丸める。4×4 は 10 固定）
+ *   timeLimit タイムアタックの 60 / 120
+ */
 export function startGame({
   mode = 'classic',
+  size,
   target,
   timeLimit,
   rng = Math.random,
 } = {}) {
   const config = modeById(mode);
+  const boardSize = config.sizes.includes(Number(size)) ? Number(size) : config.sizes[0];
+  const rules = sizeRule(boardSize);
   const limit = config.timed ? (TIME_LIMITS.includes(timeLimit) ? timeLimit : config.timeLimit) : 0;
-  const t = targetPair(config.sized ? (target ?? DEFAULT_WIDE_TARGET) : DEFAULT_TARGET, config.size);
-  const pool = poolFor(config.size, config.mechanic, t);
-  const opened = ensurePlayable(makeBoard({ size: config.size, mechanic: config.mechanic, target: t, pool, rng }), {
-    size: config.size,
+  const t = targetPair(targetForMode(config.id, boardSize, target), boardSize, config.mechanic);
+  const pool = poolFor(boardSize, config.mechanic, t);
+  const opened = ensurePlayable(makeBoard({ size: boardSize, mechanic: config.mechanic, target: t, pool, rng }), {
+    size: boardSize,
     mechanic: config.mechanic,
     target: t,
     pool,
     rng,
   });
+  const turn = config.life ? rules.turnSeconds * 1000 : 0;
   return {
     modeId: config.id,
-    size: config.size,
+    size: boardSize,
     mechanic: config.mechanic,
     life: config.life,
     timed: config.timed,
     timeLimit: limit,
     timeLeft: limit * 1000,
+    turnLimit: turn,
+    turnLeft: turn,
     rows: t.rows,
     cols: t.cols,
     targets: t,
     pool,
     board: opened.board,
     score: 0,
-    moves: config.life ? START_MOVES : null,
-    maxMoves: MAX_MOVES,
+    moves: config.life ? rules.moves : null,
+    maxMoves: config.life ? rules.moves : 0,
     chain: 0,
     bestCombo: 0,
     clearedLines: 0,
     swaps: 0,
+    hints: 0,
     lastGain: 0,
     lastReward: 0,
     overReason: null,
@@ -557,7 +713,7 @@ export function startGame({
  * 返すもの: 最終盤面 / steps（1段ごとの光るラインと得点）/ 合計点 / 消したライン数 / 連鎖段数
  */
 export function resolveBoard(board, { size = FREE_SIZE, target = DEFAULT_TARGET, mechanic = MECHANIC.swap, chain = 1, pool, rng = Math.random } = {}) {
-  const t = normalizeTargets(size, target);
+  const t = normalizeTargets(size, target, mechanic);
   const p = pool ?? poolFor(size, mechanic, t);
   const steps = [];
   let current = board;
@@ -592,29 +748,40 @@ export function resolveBoard(board, { size = FREE_SIZE, target = DEFAULT_TARGET,
   return { board: current, steps, gained, clearedLines, combo: cascade };
 }
 
-/** 手数と終了判定をまとめる（消したライン数から回復量を決める） */
+/**
+ * 手数・制限時間・終了判定をまとめる。
+ *   手数 … 1手 −1、消したライン数で回復（+1 / +2 / 全回復）
+ *   制限時間 … 1ライン以上消したときだけ、その盤面の秒数に戻る
+ */
 export function applyMoveCost(game, resolved, { swap = true } = {}) {
-  const reward = moveReward({ lines: resolved.clearedLines, steps: resolved.steps.length });
   const cleared = resolved.steps.length > 0;
+  const reward = moveReward({
+    lines: resolved.clearedLines,
+    steps: resolved.steps.length,
+    maxMoves: game.maxMoves || startMovesFor(game.size),
+  });
   let moves = game.moves;
   if (game.life) {
-    moves = Math.min(game.maxMoves, Math.max(0, game.moves - 1 + reward));
+    const max = game.maxMoves || startMovesFor(game.size);
+    moves = Math.min(max, Math.max(0, game.moves - 1 + reward));
   }
-  const over = Boolean(game.life && moves <= 0);
+  const overMoves = Boolean(game.life && moves <= 0);
   return {
     ...game,
     // 呼び出し側が「手が残るように整えた盤面」を game.board に入れて渡す
     board: game.board ?? resolved.board,
     score: game.score + resolved.gained,
     moves,
+    turnLeft: !game.life ? game.turnLeft : cleared ? game.turnLimit : game.turnLeft,
     chain: cleared ? Math.min(game.chain + 1, MAX_CHAIN) : 0,
     bestCombo: Math.max(game.bestCombo, resolved.combo),
     clearedLines: game.clearedLines + resolved.clearedLines,
     swaps: game.swaps + (swap ? 1 : 0),
     lastGain: resolved.gained,
     lastReward: reward,
-    status: over ? STATUS.over : game.status,
-    overReason: over ? OVER_REASON.moves : game.overReason,
+    lastCleared: cleared,
+    status: overMoves ? STATUS.over : game.status,
+    overReason: overMoves ? OVER_REASON.moves : game.overReason,
   };
 }
 
@@ -707,12 +874,26 @@ export function findHint(board, size, target = DEFAULT_TARGET, mechanic = MECHAN
   return hint ? { mechanic, a: hint.a, b: hint.b, rows: hint.rows, cols: hint.cols, lines: hint.lines } : null;
 }
 
-/** タイムアタックの残り時間。0 になったら status='over' */
+/**
+ * 時間を進める。
+ *   タイムアタック … 全体の 60 / 120秒。0 で終了。
+ *   エンドレス系   … 1ライン消すまでの制限時間。0 で（手数が残っていても）終了。
+ */
 export function advanceTime(game, ms) {
-  if (!game || !game.timed || game.status !== STATUS.playing) return game;
-  const timeLeft = Math.max(0, game.timeLeft - Math.max(0, ms));
-  const over = timeLeft <= 0;
-  return { ...game, timeLeft, status: over ? STATUS.over : STATUS.playing, overReason: over ? OVER_REASON.time : game.overReason };
+  if (!game || game.status !== STATUS.playing) return game;
+  const delta = Math.max(0, Math.round(Number(ms) || 0));
+  if (!delta) return game;
+  if (game.timed) {
+    const timeLeft = Math.max(0, game.timeLeft - delta);
+    const over = timeLeft <= 0;
+    return { ...game, timeLeft, status: over ? STATUS.over : STATUS.playing, overReason: over ? OVER_REASON.time : game.overReason };
+  }
+  if (game.life && game.turnLimit > 0) {
+    const turnLeft = Math.max(0, game.turnLeft - delta);
+    const over = turnLeft <= 0;
+    return { ...game, turnLeft, status: over ? STATUS.over : STATUS.playing, overReason: over ? OVER_REASON.time : game.overReason };
+  }
+  return game;
 }
 
 /** ミリ秒 → "1:05"（表示用。言語に依存しない形） */
@@ -721,6 +902,11 @@ export function formatClock(ms) {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+/** ミリ秒 → 残り秒（小数1桁。制限時間バーの数字用） */
+export function formatSeconds(ms) {
+  return (Math.max(0, ms) / 1000).toFixed(1);
 }
 
 /** 盤面の合計が target に近いラインを探す（あそびかたの図とヒント用） */

@@ -1,12 +1,14 @@
 /**
- * LINEZAP — 画面と操作（Build 3）
+ * LINEZAP — 画面と操作（Build 4）
  *
  * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、
  * バイブは src/haptics.js、課金は src/pro.js、記録は src/storage.js。
- * ここは「オープニングを出す・盤面を描く・ドラッグ/タップを受ける・シートを開く」だけを持つ。
+ * ここは「オープニングを出す・開始前ページでマス数と目標を選ぶ・盤面を描く・
+ * ドラッグ/タップを受ける・シートを開く・手数と制限時間を回す」だけを持つ。
  *
  * 1回の入れ替えで core.swapTiles() が「入れ替え → 消えるライン → 落ちてくる盤面 →
- * 手数の回復 → ゲームオーバー」を全部計算して返すので、ここはその順番どおりに見せる。
+ * 手数の回復と制限時間のリセット → ゲームオーバー」を全部計算して返すので、
+ * ここはその順番どおりに見せる。
  */
 
 import * as core from './core.js';
@@ -21,7 +23,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const COMBO_KEYS = ['combo.nice', 'combo.great', 'combo.super', 'combo.amazing', 'combo.fever'];
-/** 何も操作がないままヒントを出すまでの時間（ヒント ON のとき） */
+/** 何も操作がないままヒントを出すまでの時間（ヒント ON のとき・手数は減らない） */
 const IDLE_HINT_MS = 9000;
 /** オープニングの長さ（タップですぐ終わる） */
 const OPENING_MS = 1650;
@@ -58,6 +60,8 @@ const state = {
   drag: null,
   /** ドラッグ直後の click をタップとして扱わない */
   suppressClick: false,
+  /** 開始前ページ（マス数と目標）の選択 */
+  start: { mode: 'classic', size: 4, target: 10 },
 };
 
 const audio = createAudioEngine({
@@ -141,12 +145,6 @@ function updateVersion() {
 }
 
 function updateRulesInfo() {
-  const node = $('#rules-target');
-  if (node) {
-    node.textContent = i18n.t('rules.line', state.locale, { target: state.settings.target });
-  }
-  const value = $('#set-target-value');
-  if (value) value.textContent = String(state.settings.target);
   $$('#set-text-size button').forEach((button) => {
     const on = button.dataset.size === state.settings.textSize;
     button.classList.toggle('is-on', on);
@@ -161,11 +159,27 @@ function updateSwitches() {
   setSwitch($('#set-hint'), state.settings.hint);
   const soundIcon = $('#btn-sound-play use');
   if (soundIcon) soundIcon.setAttribute('href', state.settings.sound ? '#i-sound-on' : '#i-sound-off');
-  const hintButtons = [$('#btn-hint'), $('#btn-hint-foot')];
-  for (const button of hintButtons) {
+  updateHintButtons();
+}
+
+/**
+ * ヒントボタンの見た目。
+ *   ヒントOFF … `is-off`（押しても何も起きない）
+ *   手数が2以下 … `is-spent`（押すと「手数3以上で使えます」のトースト）
+ *   エンドレス系では「−2」のコストを出す
+ */
+function updateHintButtons(game = state.game) {
+  const endless = Boolean(game && game.life);
+  const allowed = !endless || (game.moves >= core.HINT_MIN_MOVES && game.moves > 0);
+  const off = !state.settings.hint;
+  for (const button of [$('#btn-hint'), $('#btn-hint-foot')]) {
     if (!button) continue;
-    button.classList.toggle('is-off', !state.settings.hint);
-    button.setAttribute('aria-disabled', state.settings.hint ? 'false' : 'true');
+    button.classList.toggle('is-off', off);
+    button.classList.toggle('is-spent', endless && !allowed);
+    button.setAttribute('aria-disabled', off || (endless && !allowed) ? 'true' : 'false');
+  }
+  for (const node of [$('#hint-cost'), $('#hint-cost-foot')]) {
+    if (node) node.hidden = !endless;
   }
 }
 
@@ -185,7 +199,8 @@ function buildModes() {
   if (!box) return;
   box.innerHTML = '';
   for (const config of core.MODES) {
-    const locked = !pro.canPlayMode(state.entitled, config.id);
+    const locked = !pro.canPlayMode(state.entitled, config.id, config.sizes[0]);
+    const proSizes = config.pro ? [] : config.proSizes;
     const card = document.createElement('div');
     card.className = `mode mode--${config.id}${locked ? ' is-locked' : ''}`;
     card.dataset.mode = config.id;
@@ -196,6 +211,9 @@ function buildModes() {
           ${locked ? `<span class="mode__badge" title="${i18n.t('mode.locked', state.locale)}">${icon('lock')}<b class="mode__badge-text">${i18n.t('home.pro', state.locale)}</b></span>` : ''}
         </span>
         <span class="mode__desc">${i18n.t(`mode.${config.id}.desc`, state.locale)}</span>
+        ${config.pro ? '' : `<span class="mode__sizes" aria-hidden="true">${proSizes
+          .map((size) => `<b>${size}×${size}<i>PRO</i></b>`)
+          .join('')}</span>`}
         ${config.id === 'cross' ? `<span class="mode__pairs" aria-hidden="true">${core
           .pairLegend()
           .map((pair) => `<b>${pair.front}<i>↔</i>${pair.back}</b>`)
@@ -208,6 +226,116 @@ function buildModes() {
     `;
     box.appendChild(card);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 開始前ページ（マス数と目標）                                        */
+/* ------------------------------------------------------------------ */
+
+/** 開始前ページで最後に選んだマス数（モードごとに覚える） */
+const startMemory = { classic: core.FREE_SIZE, cross: core.FREE_SIZE, time: core.FREE_SIZE };
+
+function startTargetFor(modeId, size) {
+  return storage.targetFor(state.settings, modeId, size);
+}
+
+/** 開始前ページを開く（クラシック / 十字フリップ） */
+function openStart(modeId) {
+  const mode = core.modeById(modeId);
+  if (mode.timed) {
+    startGame(mode.id, { timeLimit: mode.timeLimit });
+    return;
+  }
+  if (!pro.canPlayMode(state.entitled, mode.id, mode.sizes[0])) {
+    openSheet('pro');
+    return;
+  }
+  state.start.mode = mode.id;
+  const remembered = startMemory[mode.id];
+  state.start.size = mode.sizes.includes(remembered) ? remembered : mode.sizes[0];
+  state.start.target = startTargetFor(mode.id, state.start.size);
+  renderStart();
+  openSheet('start');
+}
+
+function renderStart() {
+  const mode = core.modeById(state.start.mode);
+  const size = state.start.size;
+  const bounds = core.targetBounds(size, mode.mechanic);
+  const rules = core.sizeRule(size);
+  const title = $('#start-title');
+  if (title) title.textContent = i18n.t(`mode.${mode.id}`, state.locale);
+
+  $$('#start-sizes .size-btn').forEach((button) => {
+    const value = Number(button.dataset.size);
+    const needs = core.needsProSize(mode.id, value);
+    button.classList.toggle('is-on', value === size);
+    button.classList.toggle('is-locked', needs && !state.entitled);
+    button.classList.toggle('is-owned', needs && state.entitled);
+    button.setAttribute('aria-pressed', value === size ? 'true' : 'false');
+    // 十字フリップはモード全体が PRO なので、4×4 に「無料」とは書かない
+    const free = button.querySelector('small:not(.size-btn__pro)');
+    if (free) free.hidden = mode.pro;
+  });
+
+  const value = $('#start-target-value');
+  if (value) value.textContent = String(state.start.target);
+  $$('#sheet-start [data-target-step]').forEach((button) => {
+    button.disabled = bounds.fixed;
+  });
+  const note = $('#start-target-note');
+  if (note) {
+    note.textContent = bounds.fixed
+      ? i18n.t('start.fixed', state.locale, { target: state.start.target })
+      : i18n.t('start.range', state.locale, { min: bounds.min, max: bounds.max });
+  }
+  const moves = $('#start-moves');
+  if (moves) moves.textContent = String(rules.moves);
+  const turn = $('#start-turn');
+  if (turn) turn.textContent = i18n.t('start.seconds', state.locale, { n: rules.turnSeconds });
+  const sub = $('#start-play-sub');
+  if (sub) sub.textContent = `${size}×${size} · ${state.start.target}`;
+  updateStartLocks();
+}
+
+/** 選べないサイズ（PRO 未購入の 5×5 / 6×6）を選んだら購入画面へ */
+function updateStartLocks() {
+  const mode = core.modeById(state.start.mode);
+  $$('#start-sizes .size-btn').forEach((button) => {
+    const value = Number(button.dataset.size);
+    const needs = core.needsProSize(mode.id, value);
+    button.classList.toggle('is-locked', needs && !state.entitled);
+    button.classList.toggle('is-owned', needs && state.entitled);
+  });
+}
+
+function pickStartSize(value) {
+  const mode = core.modeById(state.start.mode);
+  if (!mode.sizes.includes(value)) return;
+  if (core.needsProSize(mode.id, value) && !state.entitled) {
+    openSheet('pro');
+    return;
+  }
+  audio.tap();
+  haptics.select();
+  state.start.size = value;
+  state.start.target = startTargetFor(mode.id, value);
+  startMemory[mode.id] = value;
+  renderStart();
+}
+
+function stepStartTarget(step) {
+  const mode = core.modeById(state.start.mode);
+  const size = state.start.size;
+  const bounds = core.targetBounds(size, mode.mechanic);
+  if (bounds.fixed) return;
+  const next = Math.min(bounds.max, Math.max(bounds.min, state.start.target + step));
+  if (next === state.start.target) return;
+  state.start.target = next;
+  state.settings = storage.rememberTarget(state.settings, mode.id, size, next);
+  renderStart();
+  audio.tap();
+  haptics.select();
 }
 
 function buildLangGrid() {
@@ -281,7 +409,10 @@ function updatePlayLegend() {
 
 function updateHomeBest() {
   const node = $('#home-best');
-  if (node) node.textContent = formatNumber(state.bests.classic ?? 0);
+  if (!node) return;
+  // ホームのベストはクラシックの3サイズのうち一番いい記録
+  const best = Math.max(0, ...core.SIZES.map((size) => state.bests[core.gameKey('classic', size)] ?? 0));
+  node.textContent = formatNumber(best);
 }
 
 /* ------------------------------------------------------------------ */
@@ -575,6 +706,9 @@ function updateHud({ gained = 0, lost = 0 } = {}) {
   if (movesNode && game && game.life) movesNode.textContent = String(game.moves);
   renderPips(game, { gained, lost });
 
+  updateTurnBar(game);
+  updateHintButtons(game);
+
   const timeWrap = $('#hud-time-wrap');
   const timeNode = $('#hud-time');
   const bar = $('#timerbar');
@@ -593,10 +727,28 @@ function updateHud({ gained = 0, lost = 0 } = {}) {
   }
 }
 
+/**
+ * 1ライン消すまでの制限時間バー（エンドレス系）。
+ * 残り3秒以下で `is-urgent`（赤＋脈打ち）。秒数は小数1桁で出す。
+ */
+function updateTurnBar(game) {
+  const bar = $('#turnbar');
+  if (!bar) return;
+  const on = Boolean(game && game.life && game.turnLimit > 0);
+  bar.hidden = !on;
+  if (!on) return;
+  const ratio = game.turnLimit ? Math.max(0, Math.min(1, game.turnLeft / game.turnLimit)) : 0;
+  const fill = $('#turnbar-fill');
+  if (fill) fill.style.transform = `scaleX(${ratio})`;
+  const text = $('#turn-time');
+  if (text) text.textContent = core.formatSeconds(game.turnLeft);
+  bar.classList.toggle('is-urgent', game.turnLeft <= 3000);
+}
+
 function currentKey() {
   const game = state.game;
-  if (!game) return 'classic';
-  return core.gameKey(game.modeId, game.timeLimit);
+  if (!game) return core.gameKey('classic', 4);
+  return core.gameKey(game.modeId, game.size, game.timeLimit);
 }
 
 function currentBest() {
@@ -619,22 +771,36 @@ function saveBest() {
 /* ゲームの開始・終了                                                  */
 /* ------------------------------------------------------------------ */
 
-function startGame(modeId, timeLimit) {
+function startGame(modeId, { size, target, timeLimit } = {}) {
+  const mode = core.modeById(modeId);
+  const boardSize = mode.sizes.includes(Number(size)) ? Number(size) : mode.sizes[0];
+  if (!pro.canPlayMode(state.entitled, mode.id, boardSize)) {
+    openSheet('pro');
+    return;
+  }
   closeSheet();
   clearIdle();
   audio.unlock();
+  const chosen = target ?? startTargetFor(mode.id, boardSize);
   state.game = core.startGame({
-    mode: modeId,
-    target: state.settings.target,
+    mode: mode.id,
+    size: boardSize,
+    target: chosen,
     timeLimit,
   });
+  // 次に開いたときに同じ目標で始められるよう、選んだ値を覚えておく
+  if (!core.targetBounds(boardSize, mode.mechanic).fixed) {
+    state.settings = storage.rememberTarget(state.settings, mode.id, boardSize, state.game.targets.rows);
+  }
+  state.start = { mode: mode.id, size: boardSize, target: state.game.targets.rows };
+  startMemory[mode.id] = boardSize;
   state.shownScore = 0;
   state.busy = false;
   state.selected = null;
   state.drag = null;
   state.hintShown = false;
   state.lastMoves = state.game.moves;
-  state.bestAtStart = state.bests[core.gameKey(state.game.modeId, state.game.timeLimit)] ?? 0;
+  state.bestAtStart = state.bests[currentKey()] ?? 0;
   resetCombo();
   clearFlash();
   clearHintTiles();
@@ -649,17 +815,23 @@ function startGame(modeId, timeLimit) {
 
 function startTimer() {
   stopTimer();
-  if (!state.game || !state.game.timed) return;
+  const game = state.game;
+  if (!game) return;
+  if (!game.timed && !(game.life && game.turnLimit > 0)) return;
   state.lastTick = performance.now();
   state.timer = setInterval(() => {
     if (!state.game || state.game.status !== core.STATUS.playing) return;
     const now = performance.now();
     const delta = now - state.lastTick;
     state.lastTick = now;
+    // 設定・あそびかたを開いている間と、アプリが裏に回っている間は時間を止める
+    // （ターンタイマーで理不尽に終わらないように）
+    if (state.sheet && state.sheet !== 'result') return;
+    if (typeof document !== 'undefined' && document.hidden) return;
     state.game = core.advanceTime(state.game, delta);
     updateHud();
     if (state.game.status === core.STATUS.over) endRun();
-  }, 200);
+  }, 100);
 }
 
 function stopTimer() {
@@ -683,6 +855,12 @@ function endRun() {
   const title = $('#result-title');
   if (title) {
     title.textContent = i18n.t(state.game.overReason === core.OVER_REASON.time ? 'result.timeUp' : 'result.movesOut', state.locale);
+  }
+  const reason = $('#result-reason');
+  if (reason) {
+    let key = 'result.reasonMoves';
+    if (state.game.overReason === core.OVER_REASON.time) key = state.game.life ? 'result.reasonTime' : 'result.reasonTimeAttack';
+    reason.textContent = i18n.t(key, state.locale);
   }
   const scoreNode = $('#result-score');
   const bestNode = $('#result-best');
@@ -734,6 +912,12 @@ function showHint({ silent = false } = {}) {
   const game = state.game;
   if (!game || game.status !== core.STATUS.playing) return false;
   if (!state.settings.hint) return false;
+  // ボタンで使うヒントは手数を2つ使う（残り2以下なら使えない）
+  if (!silent && game.life && !core.hintAllowed(game)) {
+    toast(i18n.t('toast.hintCost', state.locale));
+    haptics.haptic('warning');
+    return false;
+  }
   clearHintTiles();
   const hint = core.findHint(game.board, game.size, game.targets, game.mechanic);
   if (!hint) {
@@ -747,10 +931,16 @@ function showHint({ silent = false } = {}) {
   }
   state.hintShown = true;
   if (state.hintTimer) clearTimeout(state.hintTimer);
-  state.hintTimer = setTimeout(() => clearHintTiles(), 2800);
+  state.hintTimer = setTimeout(() => clearHintTiles(), 3000);
   if (!silent) {
     haptics.select();
     audio.tap();
+    if (game.life) {
+      state.lastMoves = state.game.moves;
+      const spent = core.spendHint(state.game);
+      state.game = spent.game;
+      updateHud({ lost: spent.spent });
+    }
   }
   return true;
 }
@@ -880,6 +1070,7 @@ function applyFinalGame(next) {
       ...next,
       status: core.STATUS.over,
       timeLeft: live.timeLeft,
+      turnLeft: live.turnLeft,
       overReason: live.overReason ?? next.overReason,
     };
     return;
@@ -1067,11 +1258,7 @@ function updateProUI() {
   const dev = $('#pro-dev');
   if (dev) dev.hidden = !pro.previewAllowed();
   setSwitch($('#set-dev'), pro.previewUnlocked());
-  $$('#set-target .stepper button').forEach((button) => {
-    button.disabled = !state.entitled;
-  });
-  const target = $('#set-target');
-  if (target) target.classList.toggle('is-locked', !state.entitled);
+  updateStartLocks();
 }
 
 function refreshProSheet() {
@@ -1175,21 +1362,6 @@ function setTextSize(size) {
   updateRulesInfo();
   audio.tap();
 }
-
-function changeTarget(step) {
-  if (!state.entitled) {
-    openSheet('pro');
-    return;
-  }
-  const next = Math.min(core.MAX_TARGET, Math.max(core.MIN_TARGET, state.settings.target + step));
-  if (next === state.settings.target) return;
-  state.settings = storage.updateSettings({ ...state.settings, target: next });
-  updateRulesInfo();
-  audio.tap();
-  haptics.select();
-  toast(i18n.t('toast.target', state.locale, { target: next }));
-}
-
 /* ------------------------------------------------------------------ */
 /* 一時停止（BGM をホーム画面に残さない）                              */
 /* ------------------------------------------------------------------ */
@@ -1201,7 +1373,7 @@ function pauseAudioEverywhere() {
 function resumeAudioEverywhere() {
   if (typeof document !== 'undefined' && document.hidden) return;
   audio.resume();
-  if (state.game && state.game.timed) state.lastTick = performance.now();
+  if (state.game) state.lastTick = performance.now();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1248,7 +1420,7 @@ function startOpening() {
 
 function bind() {
   // home
-  $('#btn-play')?.addEventListener('click', () => startGame('classic'));
+  $('#btn-play')?.addEventListener('click', () => openStart('classic'));
   $('#btn-howto')?.addEventListener('click', () => openSheet('howto'));
   $('#btn-settings')?.addEventListener('click', () => openSheet('settings'));
   $('#btn-lang-home')?.addEventListener('click', () => openSheet('language'));
@@ -1258,26 +1430,39 @@ function bind() {
   $('#mode-list')?.addEventListener('click', (event) => {
     const timeButton = event.target.closest('[data-time]');
     if (timeButton) {
-      if (!pro.canPlayMode(state.entitled, 'time')) {
+      if (!pro.canPlayMode(state.entitled, 'time', 4)) {
         openSheet('pro');
         return;
       }
-      startGame('time', Number(timeButton.dataset.time));
+      startGame('time', { size: 4, timeLimit: Number(timeButton.dataset.time) });
       return;
     }
     const main = event.target.closest('[data-mode]');
     if (!main) return;
-    const id = main.dataset.mode;
-    if (!pro.canPlayMode(state.entitled, id)) {
+    openStart(main.dataset.mode);
+  });
+
+  // 開始前ページ（マス数と目標）
+  $('#start-sizes')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-size]');
+    if (!button) return;
+    pickStartSize(Number(button.dataset.size));
+  });
+  $('#sheet-start')?.addEventListener('click', (event) => {
+    const step = event.target.closest('[data-target-step]');
+    if (!step) return;
+    stepStartTarget(Number(step.dataset.targetStep));
+  });
+  $('#btn-start')?.addEventListener('click', () => {
+    const mode = state.start.mode;
+    if (!pro.canPlayMode(state.entitled, mode, state.start.size)) {
       openSheet('pro');
       return;
     }
-    const config = core.modeById(id);
-    startGame(id, config.timed ? config.timeLimit : undefined);
+    startGame(mode, { size: state.start.size, target: state.start.target });
   });
 
-  // play
-  $('#btn-quit')?.addEventListener('click', goHome);
+  // play（左上の ← は Build 4 で外した。戻るは下部の「ホームへ」だけ）
   $('#btn-home')?.addEventListener('click', goHome);
   $('#board')?.addEventListener('click', (event) => {
     if (state.suppressClick) {
@@ -1301,7 +1486,7 @@ function bind() {
     const game = state.game;
     if (!game) return;
     saveBest();
-    startGame(game.modeId, game.timeLimit || undefined);
+    startGame(game.modeId, { size: game.size, target: game.targets.rows, timeLimit: game.timeLimit || undefined });
   });
 
   // sheets
@@ -1323,11 +1508,6 @@ function bind() {
     const button = event.target.closest('[data-size]');
     if (!button) return;
     setTextSize(button.dataset.size);
-  });
-  $('#set-target')?.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-step]');
-    if (!button) return;
-    changeTarget(Number(button.dataset.step));
   });
   $('#lang-grid')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-locale]');
@@ -1354,7 +1534,7 @@ function bind() {
       goHome();
       return;
     }
-    startGame(game.modeId, game.timeLimit || undefined);
+    startGame(game.modeId, { size: game.size, target: game.targets.rows, timeLimit: game.timeLimit || undefined });
   });
   $('#btn-result-home')?.addEventListener('click', goHome);
 
@@ -1442,6 +1622,9 @@ function boot() {
       closeSheet,
       setEntitled,
       showHint,
+      openStart,
+      pickStartSize,
+      stepStartTarget,
       skipOpening: finishOpening,
       /** ヒント ON/OFF（スクリーンショットと検証用） */
       setHint(on) {
@@ -1451,6 +1634,18 @@ function boot() {
       },
       get game() {
         return state.game;
+      },
+      /** 制限時間を任意のミリ秒にする（タイムアウトの検証用） */
+      setTurnLeft(ms) {
+        if (!state.game) return;
+        state.game = { ...state.game, turnLeft: Math.max(0, Number(ms) || 0) };
+        updateHud();
+      },
+      /** 手数を任意にする（ヒントの検証用） */
+      setMoves(moves) {
+        if (!state.game) return;
+        state.game = { ...state.game, moves };
+        updateHud();
       },
       setBoard(values, { sides = [] } = {}) {
         if (!state.game) return;
@@ -1466,11 +1661,6 @@ function boot() {
           }),
         };
         paintBoard(state.game);
-        updateHud();
-      },
-      setMoves(moves) {
-        if (!state.game) return;
-        state.game = { ...state.game, moves };
         updateHud();
       },
       /** 失敗したときの切り分け用 */
