@@ -319,8 +319,8 @@ jobs:
           test -f ios/App/App/public/src/i18n.js
           test -f ios/App/App/public/src/audio.js
           test -f ios/App/App/public/src/pro.js
-          test -f ios/App/App/public/assets/flip10-appicon-1024.png
-          grep -q 'FLIP 10' ios/App/App/public/index.html
+          test -f ios/App/App/public/assets/linezap-appicon-1024.png
+          grep -q 'LINEZAP' ios/App/App/public/index.html
           echo "Capacitor sync OK"
 
       - name: Archive (Xcode cloud signing)

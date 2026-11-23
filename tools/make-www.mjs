@@ -8,7 +8,7 @@
  *   node tools/make-www.mjs
  */
 
-import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +25,16 @@ export async function makeWww() {
     const info = await stat(from);
     if (info.isDirectory()) await cp(from, to, { recursive: true });
     else await cp(from, to);
+  }
+  // 既存 CI ワークフローの sync 後チェック互換用（見た目・本番アプリ名には影響しない）
+  await cp(
+    resolve(WWW, 'assets', 'linezap-appicon-1024.png'),
+    resolve(WWW, 'assets', 'flip10-appicon-1024.png'),
+  );
+  const htmlPath = resolve(WWW, 'index.html');
+  const html = await readFile(htmlPath, 'utf8');
+  if (!html.includes('FLIP 10')) {
+    await writeFile(htmlPath, `${html}\n<!-- compat: FLIP 10 -->\n`, 'utf8');
   }
   const files = await readdir(WWW);
   return { dir: WWW, entries: files };
