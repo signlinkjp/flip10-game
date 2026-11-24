@@ -1,5 +1,5 @@
 /**
- * LINEZAP — ルールと盤面（Build 5）
+ * LINEZAP — ルールと盤面（Build 6）
  *
  * ここは DOM も音も知らない。盤面・入れ替え・ライン消去・コンボ・得点・手数・制限時間だけを持つ。
  * UI（src/main.js）もテストも、このファイルの関数だけを見る。
@@ -33,7 +33,7 @@
  */
 
 export const VERSION = '1.0.0';
-export const BUILD = 5;
+export const BUILD = 6;
 
 /** 4×4 の消える合計（固定） */
 export const DEFAULT_TARGET = 10;
@@ -833,6 +833,52 @@ export function advanceTime(game, ms) {
     return { ...game, turnLeft, status: over ? STATUS.over : STATUS.playing, overReason: over ? OVER_REASON.time : game.overReason };
   }
   return game;
+}
+
+/**
+ * 1回のタイマー刻みで時間を進めてよいか（Build 6）。
+ *
+ * 入れ替え・コンボ演出の間（busy）と、設定・あそびかたを開いている間、
+ * アプリが裏に回っている間は時間を止める。
+ * 止めている間に進んだ時間は、復帰時にまとめて引かない（呼び出し側が lastTick を進める）。
+ * これがないと「残り0.15秒でコンボが始まった→演出中に時間切れ」でゲームが終わってしまう。
+ */
+export function canTickClock({ busy = false, sheet = null, hidden = false } = {}) {
+  if (busy) return false;
+  if (sheet && sheet !== 'result') return false;
+  if (hidden) return false;
+  return true;
+}
+
+/**
+ * 1回の刻みで進める時間。
+ * 端末が固まって戻ったときに、まとめて0秒（即ゲームオーバー）にならないよう上限を置く。
+ */
+export function clockStep(ms, max = 1000) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(Math.round(value), Math.max(0, Math.round(Number(max) || 0)));
+}
+
+/**
+ * 演出のあと、計算済みの結果を今のゲームに反映するときの決まり（Build 6）。
+ *
+ * アニメ中に時間切れになっていても、ラインが消えた手（コンボ成立）は優先して続行する。
+ * コンボ不発なら、時間切れはそのまま（0秒のままプレイが続かないように）。
+ */
+export function mergeMoveResult(live, next, { cleared = false } = {}) {
+  if (!live) return next;
+  if (live.status === STATUS.over) {
+    if (cleared && next.status === STATUS.playing) return next;
+    return {
+      ...next,
+      status: STATUS.over,
+      timeLeft: live.timeLeft,
+      turnLeft: live.turnLeft,
+      overReason: live.overReason ?? next.overReason,
+    };
+  }
+  return next;
 }
 
 /** ミリ秒 → "1:05"（表示用。言語に依存しない形） */

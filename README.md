@@ -1,7 +1,7 @@
 # LINEZAP
 
 好きな2マスを入れ替えて、行か列の合計を**目標の数字**にそろえて消す1人用パズル。
-HTML / CSS / JavaScript（素の ES Modules）＋ Capacitor 8 の iOS アプリ。**Build 5**。
+HTML / CSS / JavaScript（素の ES Modules）＋ Capacitor 8 の iOS アプリ。**Build 6**。
 
 ![home](../downloads/linezap-b5-home.png)
 
@@ -32,6 +32,8 @@ Build 5 で十字フリップ（＋の字が反転・表裏で5）は遊び方�
    - 消すと回復する: **1ライン +1**（−1 と合わせて減らない）／**2ライン +2**（実質 +1）／
      **3ライン以上か連鎖で全回復**。
    - **1ライン以上消すたびに制限時間が戻る**（4×4 **10秒** / 5×5 **12秒** / 6×6 **15秒**）。
+     入れ替えとコンボ演出の間は**タイマーを止める**ので、残り0.15秒でコンボが始まっても
+     演出中に時間切れにならず、コンボのあと**タイマーが満タンに戻って続行**する（Build 6）。
    - 制限時間が **0秒** になると、**手数が残っていてもゲームオーバー**（リザルトに「タイムアップ！」）。
    - プレイ画面上部に残り秒数のバーと秒数（小数1桁）。**残り3秒以下で赤く警告**。
 5. **ヒントは手数 −2**（クラシック）。残り手数が **3以上**のときだけ使え、
@@ -99,10 +101,36 @@ Build 5 で十字フリップ（＋の字が反転・表裏で5）は遊び方�
   `setActive(false)` する（ホーム画面に BGM を残さない）。
 - 設定・あそびかたを開いている間はタイマーを止める（ターンタイマーで理不尽に終わらない）。
 
+## Build 6 の修正（トモアキさん報告）
+
+### 1. ゲーム中にフリーズする
+
+- **入れ替えの `busy` を `try/finally` で必ず下ろす**（`doSwap`）。音・DOM・計算のどこで失敗しても
+  以後のタップとドラッグが効かなくなる状態を残さない。
+- **時間切れの終了処理（`endRun`）に `try/finally`**。音（`audio.over`）やバイブ、結果の書き込みが
+  失敗しても **結果シートは必ず開く**。同じゲームの終了処理は1回だけ（`state.endRunFor`）。
+- **見張り番（0.25秒ごと）**: `busy` が6秒たっても戻らなければ操作を解放し、
+  「終わっているのに結果シートが出ていない」状態なら結果シートを開き直す。
+  逆に「続行中なのに結果シートが残っている」なら閉じる。
+- **ドラッグの取り残し対策**: `pointercancel` / 画面遷移 / 時間切れ / アプリが裏に回ったときに
+  `state.drag` を捨てる。ドラッグ直後の `click` は**時刻**で捨てるので、次のタップを飲み込まない。
+- タイマーの刻みは最大1秒（端末が固まって戻ったときに、まとめて0秒にならない）。
+
+### 2. 残り時間ギリギリのコンボで時間を復活させる
+
+- **演出中は時計を進めない**（`core.canTickClock`）。入れ替え110ms＋コンボの段ごとに約0.6秒の間、
+  残り時間は減らない。止めている間の時間は復帰時にまとめて引かない（`lastTick` を進める）。
+- **ラインが消えた手は時間切れより優先**（`core.mergeMoveResult`）。演出中に0秒になっていても、
+  コンボが成立していればクラシックのターンタイマーは満タンに戻って続行する。
+  コンボ不発の入れ替えは、時間切れを覆さない（0秒のままプレイが続かない）。
+- タイムアタックは仕様どおり全体タイマーを戻さない（コンボの得点は入れてから終了）。
+- 残り時間ギリギリからコンボで戻ったときは、タイマーバーが一瞬光る（`.turnbar.is-refilled`）。
+
 ## 遊び方（開発）
 
 ```bash
-npm test          # ルールと Build 5 の検品（node --test）
+npm test          # ルールと Build 6 の検品（node --test）
+npm run e2e       # 実 Chromium で「時間切れ」「ギリギリのコンボ」「連打・ドラッグ中断」を操作検証
 npm run serve     # http://localhost:4173 （?test=1 で検証用の窓口が付く）
 npm run shots     # 実 Chromium で操作テスト＋スクリーンショット
 npm run www       # 配布用 www/ を作る（Capacitor の webDir）
@@ -111,7 +139,7 @@ python3 tools/build-i18n.py   # 12言語の表から src/i18n.js を作り直す
 python3 tools/make-icon.py    # アイコンを各サイズに書き出す
 ```
 
-スクリーンショットは `/workspace/downloads/linezap-b5-*.png`
+スクリーンショットは `/workspace/downloads/linezap-b6-*.png`
 （`-opening` / `-home` / `-start-classic` / `-start-time` / `-play` / `-play-6` / `-play-time` /
 `-result-timeout` / `-howto` / `-settings` と 375px・特大の `-home-375-xl` / `-start-375-xl` / `-play-375-xl`）。
 審査用の 6.3インチ（1206×2622）と iPad 13インチ（2064×2752）は `-63` / `-ipad13` の名前で同じ場所に出す。
@@ -139,7 +167,7 @@ python3 tools/make-icon.py    # アイコンを各サイズに書き出す
 完全オフライン・1人プレイ。アカウントなし、入力欄なし、広告・解析なし。
 スコアと設定はこの端末の中だけに残り、アプリを消すと一緒に消える。詳細は `docs/privacy.md`。
 
-## TestFlight（Build 5）
+## TestFlight（Build 6）
 
 1. `.github/workflows/ios-testflight-build1.yml` はそのまま（ビルド番号は iOS プロジェクトの
    `CURRENT_PROJECT_VERSION` から自動で読むので、次のビルド以降も貼り替え不要）。
@@ -150,7 +178,7 @@ python3 tools/make-icon.py    # アイコンを各サイズに書き出す
    ※ Bundle ID と IAP 製品 ID は登録済みのため **変更しない**（表示名だけ LINEZAP）
 
 ビルド番号は `ios/App/App.xcodeproj/project.pbxproj` の `CURRENT_PROJECT_VERSION`（Debug / Release 両方）で管理する。
-Build 5 で `5` に更新。ワークフローの preflight が食い違いを止める。
+Build 6 で `6` に更新。ワークフローの preflight が食い違いを止める。
 
 ---
 

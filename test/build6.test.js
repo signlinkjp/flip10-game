@@ -1,5 +1,5 @@
 /**
- * LINEZAP — Build 5 の検品（node --test）
+ * LINEZAP — Build 6 の検品（node --test）
  *
  * 「12言語そろっている」「画面と操作のキーが全部ある」「iOS の約束が守られている」
  * 「2モード・開始前ページ（マス数/目標/時間）・基準目標 10/18/24・タイムアタック 180秒」
@@ -281,15 +281,15 @@ test('商品IDと価格のプレースホルダは変えない', () => {
 /* 画面（index.html / styles.css / main.js）                           */
 /* ------------------------------------------------------------------ */
 
-test('タイトル・表示名・メタが LINEZAP（Build 5）', () => {
+test('タイトル・表示名・メタが LINEZAP（Build 6）', () => {
   assert.ok(HTML.includes('<title>LINEZAP</title>'));
-  assert.ok(HTML.includes('content="Build 5"'));
-  assert.ok(!HTML.includes('content="Build 4"'));
+  assert.ok(HTML.includes('content="Build 6"'));
+  assert.ok(!HTML.includes('content="Build 5"'));
   assert.ok(HTML.includes('<span class="brand__name">LINEZAP</span>'));
   assert.ok(HTML.includes('class="hero__logo"'));
   assert.ok(!HTML.includes('FLIP 10'), 'index.html に FLIP 10 が残っている');
   assert.ok(MAIN.includes("document.title = 'LINEZAP'"));
-  assert.ok(CSS.includes('LINEZAP — styles (Build 5)') || CSS.includes('Build 5'), 'CSS の版が Build 5 でない');
+  assert.ok(CSS.includes('LINEZAP — styles (Build 6)'), 'CSS の版が Build 6 でない');
 });
 
 test('ホームは2モード（クラシック / タイムアタック）だけ', () => {
@@ -416,10 +416,10 @@ test('リザルトは時間切れ／手数切れを言い分ける', () => {
   assert.ok(MAIN.includes("core.OVER_REASON.time ? 'result.timeUp' : 'result.movesOut'"));
 });
 
-test('ビルド番号の表示は Build 5', () => {
+test('ビルド番号の表示は Build 6', () => {
   assert.ok(MAIN.includes('(Build ${state.build})'));
   assert.ok(MAIN.includes('build: core.BUILD'));
-  assert.equal(core.BUILD, 5);
+  assert.equal(core.BUILD, 6);
   assert.equal(core.VERSION, '1.0.0');
 });
 
@@ -522,12 +522,12 @@ test('バイブ（FlipHaptics）が選択・入れ替え・消去・終了・警
 /* iOS プロジェクトと配信                                              */
 /* ------------------------------------------------------------------ */
 
-test('iOS は jp.signlink.Flip10 / LINEZAP / 1.0.0 / Build 5（Bundle ID と IAP は変えない）', () => {
+test('iOS は jp.signlink.Flip10 / LINEZAP / 1.0.0 / Build 6（Bundle ID と IAP は変えない）', () => {
   assert.ok(PBX.includes('PRODUCT_BUNDLE_IDENTIFIER = jp.signlink.Flip10;'));
   assert.ok(PBX.includes('MARKETING_VERSION = 1.0.0;'));
   const builds = [...PBX.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((match) => match[1]);
   assert.ok(builds.length >= 2, 'Debug/Release の両方にビルド番号が無い');
-  assert.ok(builds.every((value) => value === '5'), `ビルド番号が5でない: ${builds.join(',')}`);
+  assert.ok(builds.every((value) => value === '6'), `ビルド番号が6でない: ${builds.join(',')}`);
   assert.ok(INFO.includes('<string>LINEZAP</string>'));
   assert.ok(!INFO.includes('FLIP 10'));
   const config = JSON.parse(read('capacitor.config.json'));
@@ -602,23 +602,24 @@ test('プライバシーポリシーは LINEZAP として両言語でオフラ�
   assert.ok(!PRIVACY.includes('FLIP 10'));
 });
 
-test('README と package.json が Build 5 の配布物として揃っている', () => {
+test('README と package.json が Build 6 の配布物として揃っている', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.name, 'linezap');
   assert.equal(pkg.version, '1.0.0');
-  assert.equal(pkg.build, 5);
-  assert.ok(pkg.description.includes('Build 5'));
+  assert.equal(pkg.build, 6);
+  assert.ok(pkg.description.includes('Build 6'));
   assert.ok(pkg.scripts.test.includes('test/core.test.js'));
-  assert.ok(pkg.scripts.test.includes('test/build5.test.js'));
-  assert.ok(pkg.scripts.shots.includes('tools/shots-b5.mjs'));
+  assert.ok(pkg.scripts.test.includes('test/build6.test.js'));
+  assert.ok(pkg.scripts.test.includes('test/build6-fixes.test.js'));
+  assert.ok(pkg.scripts.shots.includes('tools/shots-b6.mjs'));
   assert.equal(pkg.dependencies['@capacitor/core'], '8.6.2');
   assert.ok(exists('docs/ios-testflight-build1.yml'));
   assert.ok(exists('docs/privacy.md'));
   assert.ok(exists('tools/make-www.mjs'));
-  assert.ok(exists('tools/shots-b5.mjs'));
+  assert.ok(exists('tools/shots-b6.mjs'));
   assert.ok(exists('tools/build-i18n.py'));
   assert.ok(README.includes('LINEZAP'));
-  assert.ok(README.includes('Build 5'));
+  assert.ok(README.includes('Build 6'));
   assert.ok(README.includes('6×6'));
   assert.ok(README.includes('ドラッグ'));
   assert.ok(README.includes('ヒント'));

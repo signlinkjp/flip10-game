@@ -1,5 +1,5 @@
 /* ============================================================
-   LINEZAP — styles (Build 5)
+   LINEZAP — styles (Build 6)
    明るいポップなライトテーマ。iPhone（375 / 393px）基準。
    青＝選んだマス / 金＝消えるライン / 水色〜ミントの背景。
    文字サイズは html[data-text] で 標準 / 大きめ / 特大 の3段階。
@@ -566,6 +566,22 @@ svg {
 .turnbar.is-urgent .turnbar__time {
   color: var(--danger);
   animation: urgent 0.9s ease-in-out infinite;
+}
+
+/* Build 6: 残り時間ギリギリのコンボでタイマーが戻ったことを一瞬見せる */
+@keyframes turnbar-refill {
+  0% {
+    filter: brightness(1.75);
+    box-shadow: 0 0 0 2px rgba(106, 157, 255, 0.5);
+  }
+  100% {
+    filter: none;
+    box-shadow: none;
+  }
+}
+
+.turnbar.is-refilled .turnbar__track i {
+  animation: turnbar-refill 0.76s ease-out;
 }
 
 /* ---------------------------- home ---------------------------- */

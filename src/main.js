@@ -1,5 +1,5 @@
 /**
- * LINEZAP — 画面と操作（Build 5）
+ * LINEZAP — 画面と操作（Build 6）
  *
  * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、
  * バイブは src/haptics.js、課金は src/pro.js、記録は src/storage.js。
@@ -29,6 +29,14 @@ const IDLE_HINT_MS = 9000;
 const OPENING_MS = 1650;
 /** タップとドラッグを分ける指の移動量（px） */
 const DRAG_THRESHOLD = 7;
+/** 入れ替えの「パタッ」を見せる時間（この間はタイマーを止める） */
+const SWAP_ANIM_MS = 110;
+/** 操作ロック（busy）のまま固まらないための上限（これを超えたら必ず操作を返す） */
+const BUSY_LIMIT_MS = 6000;
+/** 最後のコンボを見せてから結果シートを開くまでの時間 */
+const RESULT_DELAY_MS = 260;
+/** 見張り番（busy の残留・結果シートの出し忘れを拾う）の間隔 */
+const WATCHDOG_MS = 250;
 
 /* ------------------------------------------------------------------ */
 /* 状態                                                                */
@@ -58,8 +66,21 @@ const state = {
   openingTimer: null,
   /** ドラッグ中の指の位置と、いま指の下にあるマス */
   drag: null,
-  /** ドラッグ直後の click をタップとして扱わない */
-  suppressClick: false,
+  /** ドラッグ直後の click をタップとして扱わない（この時刻までは捨てる） */
+  suppressClickUntil: 0,
+  /** busy を立てた時刻（固まったままを検出する） */
+  busySince: 0,
+  /** 見張り番のタイマー */
+  watchdog: null,
+  /** 結果シートを開く予約と、その予定時刻 */
+  resultTimer: null,
+  resultDue: 0,
+  /** 結果シートを開き直した回数（無限に叩かないための上限） */
+  resultTries: 0,
+  /** 終了処理を済ませたゲーム（二重に走らせない） */
+  endRunFor: null,
+  /** 結果シートを出し終えたゲーム（閉じたものを勝手に開き直さない） */
+  resultShownFor: null,
   /** 開始前ページ（マス数・目標・タイムアタックの時間）の選択 */
   start: { mode: 'classic', size: 4, target: 10, timeLimit: 60 },
 };
@@ -850,9 +871,13 @@ function startGame(modeId, { size, target, timeLimit } = {}) {
   startMemory[mode.id] = boardSize;
   if (state.game.timed) startTimeMemory = state.game.timeLimit;
   state.shownScore = 0;
-  state.busy = false;
+  setBusy(false);
+  cancelResult();
+  cancelDrag();
+  state.endRunFor = null;
+  state.resultShownFor = null;
+  state.resultTries = 0;
   state.selected = null;
-  state.drag = null;
   state.hintShown = false;
   state.lastMoves = state.game.moves;
   state.bestAtStart = state.bests[currentKey()] ?? 0;
@@ -874,16 +899,25 @@ function startTimer() {
   if (!game.timed && !(game.life && game.turnLimit > 0)) return;
   state.lastTick = performance.now();
   state.timer = setInterval(() => {
-    if (!state.game || state.game.status !== core.STATUS.playing) return;
+    const current = state.game;
+    if (!current || current.status !== core.STATUS.playing) return;
     const now = performance.now();
     const delta = now - state.lastTick;
+    // 先に lastTick を進める。止めている間の時間を復帰時にまとめて引かないため
     state.lastTick = now;
-    // 設定・あそびかたを開いている間と、アプリが裏に回っている間は時間を止める
-    // （ターンタイマーで理不尽に終わらないように）
-    if (state.sheet && state.sheet !== 'result') return;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    state.game = core.advanceTime(state.game, delta);
-    updateHud();
+    // 入れ替え・コンボ演出の間は時間を進めない（ギリギリのコンボが時間切れで消えないように）
+    // 設定・あそびかたを開いている間と、アプリが裏に回っている間も止める
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (!core.canTickClock({ busy: state.busy, sheet: state.sheet, hidden })) return;
+    const step = core.clockStep(delta);
+    if (!step) return;
+    try {
+      state.game = core.advanceTime(current, step);
+      updateHud();
+    } catch (error) {
+      console.warn('LINEZAP: 時間の更新に失敗しました', error);
+      return;
+    }
     if (state.game.status === core.STATUS.over) endRun();
   }, 100);
 }
@@ -896,50 +930,214 @@ function stopTimer() {
 }
 
 function endRun() {
-  if (!state.game || state.game.status !== core.STATUS.over) return;
+  const game = state.game;
+  if (!game || game.status !== core.STATUS.over) return;
+  if (state.endRunFor === game) {
+    // すでに終了処理をしている。それでも結果が出ていなければ開き直す
+    if (state.sheet !== 'result' && !state.resultTimer) openResultNow();
+    return;
+  }
+  state.endRunFor = game;
+  state.resultTries = 0;
   stopTimer();
   clearIdle();
-  state.selected = null;
-  paintSelection();
-  const isNew = state.game.score > (state.bestAtStart ?? 0);
-  saveBest();
-  state.shownScore = state.game.score;
-  updateHud();
+  // 時間切れの瞬間にドラッグ中・アニメ中でも、盤面を触れる状態に戻しておく
+  setBusy(false);
+  cancelDrag();
 
-  const title = $('#result-title');
-  if (title) {
-    title.textContent = i18n.t(state.game.overReason === core.OVER_REASON.time ? 'result.timeUp' : 'result.movesOut', state.locale);
+  try {
+    state.selected = null;
+    paintSelection();
+    const isNew = game.score > (state.bestAtStart ?? 0);
+    try {
+      saveBest();
+    } catch (error) {
+      console.warn('LINEZAP: ベストを保存できませんでした', error);
+    }
+    state.shownScore = game.score;
+    updateHud();
+
+    const title = $('#result-title');
+    if (title) {
+      title.textContent = i18n.t(game.overReason === core.OVER_REASON.time ? 'result.timeUp' : 'result.movesOut', state.locale);
+    }
+    const reason = $('#result-reason');
+    if (reason) {
+      let key = 'result.reasonMoves';
+      if (game.overReason === core.OVER_REASON.time) key = game.life ? 'result.reasonTime' : 'result.reasonTimeAttack';
+      reason.textContent = i18n.t(key, state.locale);
+    }
+    const scoreNode = $('#result-score');
+    const bestNode = $('#result-best');
+    const linesNode = $('#result-lines');
+    const recordNode = $('#result-record');
+    if (scoreNode) scoreNode.textContent = formatNumber(game.score);
+    if (bestNode) bestNode.textContent = formatNumber(currentBest());
+    if (linesNode) linesNode.textContent = formatNumber(game.clearedLines);
+    if (recordNode) recordNode.hidden = !isNew;
+  } catch (error) {
+    // 表示のどこかで失敗しても、結果画面だけは必ず出す（Build 6: 時間切れで固まる報告への対策）
+    console.warn('LINEZAP: 結果の表示に失敗しました', error);
+  } finally {
+    try {
+      audio.over();
+    } catch (error) {
+      console.warn('LINEZAP: 終了の音を鳴らせませんでした', error);
+    }
+    try {
+      haptics.over();
+    } catch {
+      /* 震えなくても結果画面は出す */
+    }
+    openResult();
   }
-  const reason = $('#result-reason');
-  if (reason) {
-    let key = 'result.reasonMoves';
-    if (state.game.overReason === core.OVER_REASON.time) key = state.game.life ? 'result.reasonTime' : 'result.reasonTimeAttack';
-    reason.textContent = i18n.t(key, state.locale);
-  }
-  const scoreNode = $('#result-score');
-  const bestNode = $('#result-best');
-  const linesNode = $('#result-lines');
-  const recordNode = $('#result-record');
-  if (scoreNode) scoreNode.textContent = formatNumber(state.game.score);
-  if (bestNode) bestNode.textContent = formatNumber(currentBest());
-  if (linesNode) linesNode.textContent = formatNumber(state.game.clearedLines);
-  if (recordNode) recordNode.hidden = !isNew;
-  audio.over();
-  haptics.over();
-  setTimeout(() => openSheet('result'), 260);
 }
 
 function goHome() {
   stopTimer();
   clearIdle();
-  saveBest();
+  try {
+    saveBest();
+  } catch (error) {
+    console.warn('LINEZAP: ベストを保存できませんでした', error);
+  }
   resetCombo();
   closeSheet();
+  cancelResult();
+  cancelDrag();
   state.game = null;
-  state.busy = false;
+  setBusy(false);
   state.selected = null;
+  state.endRunFor = null;
+  state.resultShownFor = null;
+  state.resultTries = 0;
   showScreen('home');
   updateHomeBest();
+}
+
+/* ------------------------------------------------------------------ */
+/* 止まらないための番人（Build 6）                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 操作ロック（busy）を立てる／下ろす。
+ * 立てた時刻も覚えておき、何かの拍子に戻らないときは見張り番が解放する。
+ */
+function setBusy(value) {
+  state.busy = Boolean(value);
+  state.busySince = state.busy ? performance.now() : 0;
+}
+
+/** ドラッグ中の指を捨てる（画面遷移・時間切れ・アプリが裏に回ったとき） */
+function cancelDrag() {
+  if (!state.drag) return;
+  state.drag = null;
+  paintDrag();
+}
+
+/** 結果シートを開く予約を取り消す（復活・ホームへ・新しいゲーム） */
+function cancelResult() {
+  if (state.resultTimer) {
+    clearTimeout(state.resultTimer);
+    state.resultTimer = null;
+  }
+  state.resultDue = 0;
+}
+
+/**
+ * 入れ替えの途中で止まったままなら、操作を返す。
+ * `doSwap` は try/finally で必ず戻す作りだが、それでも戻らない場合の最後の保険。
+ */
+function forceReleaseBusy(reason) {
+  const wasBusy = state.busy;
+  setBusy(false);
+  cancelDrag();
+  clearFlash();
+  if (!wasBusy) return;
+  try {
+    if (state.game) {
+      paintBoard(state.game);
+      updateHud();
+    }
+    scheduleIdleHint();
+  } catch (error) {
+    console.warn('LINEZAP: 盤面の復帰に失敗しました', error);
+  }
+  console.warn(`LINEZAP: 操作ロックを解放しました（${reason}）`);
+}
+
+/** 結果シートを開く（最後のコンボを見せてから。二重に開かない） */
+function openResult(delay = RESULT_DELAY_MS) {
+  const game = state.game;
+  cancelResult();
+  if (!game || game.status !== core.STATUS.over) {
+    openResultNow();
+    return;
+  }
+  state.resultDue = performance.now() + Math.max(0, delay);
+  state.resultTimer = setTimeout(() => {
+    state.resultTimer = null;
+    const live = state.game;
+    // 待っている間に「もう1回」やコンボ復活が起きていたら開かない
+    if (!live || live !== game || live.status !== core.STATUS.over) return;
+    openResultNow();
+  }, Math.max(0, delay));
+}
+
+function openResultNow() {
+  try {
+    openSheet('result');
+    if (state.sheet === 'result') state.resultShownFor = state.game;
+  } catch (error) {
+    console.warn('LINEZAP: 結果画面を開けませんでした', error);
+  }
+}
+
+/** コンボで時間が復活して続行するとき、結果シートを閉じてタイマーを戻す */
+function reviveRun() {
+  cancelResult();
+  if (state.sheet === 'result') closeSheet();
+  state.endRunFor = null;
+  state.resultShownFor = null;
+  state.lastTick = performance.now();
+  if (!state.timer) startTimer();
+  updateHud();
+}
+
+/**
+ * 0.25秒ごとの見張り番。
+ *   1. busy のまま固まっていたら操作を返す
+ *   2. 時間切れなどで終わっているのに結果シートが出ていなければ必ず出す
+ *   3. 続行中なのに結果シートが残っていたら閉じる（コンボ復活）
+ */
+function watchdogTick() {
+  if (typeof document !== 'undefined' && document.hidden) return;
+  const now = performance.now();
+  if (state.busy && state.busySince && now - state.busySince > BUSY_LIMIT_MS) {
+    forceReleaseBusy('busy-timeout');
+  }
+  const game = state.game;
+  if (!game) return;
+  if (game.status === core.STATUS.over) {
+    // 一度でも結果を出したゲームは、利用者が閉じたものを勝手に開き直さない
+    if (state.resultShownFor === game) return;
+    if (state.sheet === 'result') {
+      state.resultTries = 0;
+      return;
+    }
+    const waiting = state.resultTimer && now < state.resultDue + 600;
+    if (!waiting && state.resultTries < 4) {
+      state.resultTries += 1;
+      openResultNow();
+    }
+    return;
+  }
+  if (state.sheet === 'result') closeSheet();
+}
+
+function startWatchdog() {
+  if (state.watchdog) return;
+  state.watchdog = setInterval(watchdogTick, WATCHDOG_MS);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1029,10 +1227,11 @@ function paintDrag() {
 function onBoardPointerDown(event) {
   const game = state.game;
   if (!game || state.busy || game.status !== core.STATUS.playing) return;
+  if (state.sheet) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
   const tile = event.target.closest ? event.target.closest('.tile') : null;
   if (!tile) return;
-  state.suppressClick = false;
+  state.suppressClickUntil = 0;
   state.drag = {
     from: Number(tile.dataset.i),
     target: null,
@@ -1061,17 +1260,13 @@ function onPointerMove(event) {
 function onPointerUp(event, cancelled = false) {
   const drag = state.drag;
   if (!drag) return;
-  state.drag = null;
-  paintDrag();
+  cancelDrag();
   if (!drag.moved) return;
-  // ドラッグのあとに飛んでくる click はタップとして扱わない
-  state.suppressClick = true;
-  setTimeout(() => {
-    state.suppressClick = false;
-  }, 400);
+  // ドラッグのあとに飛んでくる click はタップとして扱わない（時刻で判定するので、次のタップは消さない）
+  state.suppressClickUntil = performance.now() + 400;
   if (cancelled) return;
   const game = state.game;
-  if (!game || state.busy) return;
+  if (!game || state.busy || state.sheet || game.status !== core.STATUS.playing) return;
   if (drag.target === null) return;
   doSwap(drag.from, drag.target);
 }
@@ -1109,61 +1304,104 @@ async function onTileTap(index) {
 }
 
 /**
- * アニメの途中でタイムアップしていたら、その「終了」を残す。
- * （計算済みの result.game で上書きすると、0秒のままプレイが続いてしまう）
+ * 入れ替えの結果を今のゲームに反映する。
+ *
+ * アニメの途中で時間切れになっていても、ラインが消えた手（コンボ成立）は優先する。
+ * そうしないと「ギリギリで決めたコンボ」が時間切れに上書きされてしまう。
+ * コンボが不発のときは、終わっていれば終わったまま（時間切れは覆さない）。
  */
-function applyFinalGame(next) {
+function applyFinalGame(result) {
   const live = state.game;
-  if (live && live.status === core.STATUS.over) {
-    state.game = {
-      ...next,
-      status: core.STATUS.over,
-      timeLeft: live.timeLeft,
-      turnLeft: live.turnLeft,
-      overReason: live.overReason ?? next.overReason,
-    };
+  const next = result.game;
+  if (!live) {
+    state.game = next;
     return;
   }
-  state.game = next;
+  const cleared = result.steps.length > 0;
+  const merged = core.mergeMoveResult(live, next, { cleared });
+  const revived = live.status === core.STATUS.over && merged.status === core.STATUS.playing;
+  state.game = merged;
+  if (revived) reviveRun();
+}
+
+/** タイマーが戻ったことをバーで一瞬見せる（残り時間ギリギリのコンボ用） */
+function flashTurnbarRefill() {
+  const bar = $('#turnbar');
+  if (!bar) return;
+  bar.classList.remove('is-refilled');
+  void bar.offsetWidth;
+  bar.classList.add('is-refilled');
+  setTimeout(() => bar.classList.remove('is-refilled'), 760);
 }
 
 async function doSwap(a, b) {
-  state.busy = true;
-  state.lastMoves = state.game.moves;
-  haptics.swap();
-  audio.flip();
+  const start = state.game;
+  if (!start || start.status !== core.STATUS.playing || state.busy) return;
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a === b) return;
+  if (a < 0 || b < 0 || a >= start.board.length || b >= start.board.length) return;
 
-  const nodeA = tileNode(a);
-  const nodeB = tileNode(b);
-  for (const node of [nodeA, nodeB]) {
-    if (!node) continue;
-    node.classList.add('is-swapping');
-    setTimeout(() => node.classList.remove('is-swapping'), 240);
-  }
-  await wait(110);
-
-  const result = core.swapTiles(state.game, a, b, Math.random);
-  if (!result.swap) {
-    state.busy = false;
-    return;
-  }
-
-  const openingBoard = result.steps.length > 0 ? result.steps[0].board : result.game.board;
-  const tempGame = { ...state.game, board: openingBoard };
-  paintBoard(tempGame);
-
-  await playSteps(result);
-
-  applyFinalGame(result.game);
-  state.shownScore = state.game.score;
+  // ここで busy を立てたら、どんな失敗があっても finally で必ず下ろす
+  // （busy が立ったままだと、以後すべてのタップ・ドラッグが効かなくなる）
+  setBusy(true);
+  cancelDrag();
   state.selected = null;
-  state.busy = false;
-  paintBoard(state.game);
-  updateHud({
-    gained: Math.max(0, result.reward),
-    lost: state.lastMoves !== null ? Math.max(0, state.lastMoves - state.game.moves) : 0,
-  });
-  afterMove(result);
+  paintSelection();
+  state.lastMoves = start.moves;
+  const turnBefore = start.turnLeft;
+  let result = null;
+
+  try {
+    haptics.swap();
+    audio.flip();
+
+    const nodeA = tileNode(a);
+    const nodeB = tileNode(b);
+    for (const node of [nodeA, nodeB]) {
+      if (!node) continue;
+      node.classList.add('is-swapping');
+      setTimeout(() => node.classList.remove('is-swapping'), 240);
+    }
+    await wait(SWAP_ANIM_MS);
+
+    const live = state.game ?? start;
+    result = core.swapTiles(live, a, b, Math.random);
+    if (!result.swap) return;
+
+    const openingBoard = result.steps.length > 0 ? result.steps[0].board : result.game.board;
+    paintBoard({ ...live, board: openingBoard });
+
+    await playSteps(result);
+
+    applyFinalGame(result);
+    state.shownScore = state.game.score;
+    // 残り時間ギリギリからコンボでタイマーが戻ったら、バーを光らせる
+    if (state.game.turnLeft > turnBefore + 500) flashTurnbarRefill();
+  } catch (error) {
+    // 音・DOM・計算のどこで転んでも、操作は必ず返す（Build 6: フリーズ対策）
+    console.warn('LINEZAP: 入れ替えの途中で失敗しました', error);
+  } finally {
+    setBusy(false);
+    clearFlash();
+    state.selected = null;
+    try {
+      paintSelection();
+      if (state.game) {
+        paintBoard(state.game);
+        updateHud({
+          gained: result ? Math.max(0, result.reward) : 0,
+          lost: result && state.lastMoves !== null ? Math.max(0, state.lastMoves - state.game.moves) : 0,
+        });
+      }
+    } catch (error) {
+      console.warn('LINEZAP: 盤面の更新に失敗しました', error);
+    }
+    if (result) {
+      afterMove(result);
+    } else {
+      scheduleIdleHint();
+      if (state.game && state.game.status === core.STATUS.over) endRun();
+    }
+  }
 }
 
 /** 消えるラインを1段ずつ見せる（コンボ） */
@@ -1477,9 +1715,8 @@ function bind() {
   // play（左上の ← は Build 4 で外した。戻るは下部の「ホームへ」だけ）
   $('#btn-home')?.addEventListener('click', goHome);
   $('#board')?.addEventListener('click', (event) => {
-    if (state.suppressClick) {
-      // ドラッグ直後の click を1回だけ捨てる（次のタップは普通に効く）
-      state.suppressClick = false;
+    if (performance.now() < state.suppressClickUntil) {
+      // ドラッグ直後に飛んでくる click だけを捨てる（時刻で判定。次のタップは消さない）
       return;
     }
     const tile = event.target.closest('.tile');
@@ -1556,12 +1793,24 @@ function bind() {
 
   // BGM をホーム画面・別アプリ・ロックに残さない（JS 側）
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) pauseAudioEverywhere();
-    else resumeAudioEverywhere();
+    if (document.hidden) {
+      pauseAudioEverywhere();
+      // 指を離した通知が来ないまま裏に回ることがあるので、ドラッグは捨てる
+      cancelDrag();
+      state.lastTick = performance.now();
+    } else {
+      resumeAudioEverywhere();
+    }
   });
-  window.addEventListener('pagehide', pauseAudioEverywhere);
+  window.addEventListener('pagehide', () => {
+    cancelDrag();
+    pauseAudioEverywhere();
+  });
   window.addEventListener('beforeunload', pauseAudioEverywhere);
-  window.addEventListener('blur', pauseAudioEverywhere);
+  window.addEventListener('blur', () => {
+    cancelDrag();
+    pauseAudioEverywhere();
+  });
   window.addEventListener('pageshow', resumeAudioEverywhere);
   window.addEventListener('focus', resumeAudioEverywhere);
 
@@ -1602,6 +1851,8 @@ function boot() {
   });
   showScreen('home');
   bind();
+  // busy の残留と結果シートの出し忘れを見張る（Build 6）
+  startWatchdog();
 
   const globe = $('#btn-lang-home');
   if (globe && firstLaunch) globe.classList.add('is-attention');
@@ -1646,6 +1897,21 @@ function boot() {
       },
       get game() {
         return state.game;
+      },
+      /** 音・バイブ（失敗しても固まらないことの検証用） */
+      audio,
+      haptics,
+      endRun,
+      openResult,
+      /** 入れ替えを直接呼ぶ（検証用） */
+      async swap(a, b) {
+        await doSwap(a, b);
+      },
+      /** 全体タイマーを任意のミリ秒にする（タイムアタックの検証用） */
+      setTimeLeft(ms) {
+        if (!state.game) return;
+        state.game = { ...state.game, timeLeft: Math.max(0, Number(ms) || 0) };
+        updateHud();
       },
       /** 制限時間を任意のミリ秒にする（タイムアウトの検証用） */
       setTurnLeft(ms) {

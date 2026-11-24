@@ -1,10 +1,10 @@
 /**
- * 実ブラウザ（Chromium）での操作テスト＋スクリーンショット（Build 5）
+ * 実ブラウザ（Chromium）での操作テスト＋スクリーンショット（Build 6）
  *   npm run shots
  *
  * 確かめること:
  *   オープニング（LINEZAP ロゴ＋黄金ライン）が出て、タップで即スキップ
- *   タイトルと表示名が LINEZAP・メタが Build 5
+ *   タイトルと表示名が LINEZAP・メタが Build 6
  *   ホームは2モード（クラシック / タイムアタック）。十字フリップの文字はどこにも無い
  *   開始前ページ: サイズボタンに「基準 10 / 18 / 24」、4×4 は無料・5×5/6×6 は PRO
  *   タイムアタック: 60秒は無料、120秒・180秒は PRO。5×5/6×6 は PRO
@@ -14,7 +14,7 @@
  *   数字タイルの色が0〜9で分かれ、文字は紺のまま
  *   375px / 393px / 特大文字で崩れない・コンソールエラーと404がゼロ
  *
- * 出力: /workspace/downloads/linezap-b5-*.png
+ * 出力: /workspace/downloads/linezap-b6-*.png
  *       審査用の 6.3インチ（1206×2622）= `-63` / iPad 13インチ（2064×2752）= `-ipad13`
  *
  * 環境変数（この環境の Chromium 用）:
@@ -254,7 +254,7 @@ async function main() {
     await page.waitForFunction(() => Boolean(window.__linezap));
     check('タイトルが LINEZAP', (await page.title()) === 'LINEZAP', await page.title());
     check('左上のブランドが LINEZAP', (await page.textContent('.brand__name')).trim() === 'LINEZAP');
-    check('メタのビルドが Build 5', (await page.getAttribute('meta[name="app-build"]', 'content')) === 'Build 5');
+    check('メタのビルドが Build 6', (await page.getAttribute('meta[name="app-build"]', 'content')) === 'Build 6');
     await page.click('#btn-lang-home');
     await page.waitForSelector('#sheet-language:not([hidden])');
     await page.click('#lang-grid [data-locale="ja"]');
@@ -265,7 +265,7 @@ async function main() {
     await page.reload({ waitUntil: 'load' });
     await page.waitForSelector('#opening', { state: 'visible' });
     await page.waitForTimeout(900);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-opening.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-opening.png') });
     await page.waitForSelector('#opening', { state: 'hidden', timeout: 6000 });
     await page.waitForFunction(() => Boolean(window.__linezap));
 
@@ -290,7 +290,7 @@ async function main() {
     check('ホームが横にはみ出さない (393px)', layout.pageOverflowX <= 0, layout.pageOverflowX);
     check('モード名が折り返さない (393px)', layout.modeNames.every((item) => item.lines === 1), layout.modeNames);
     check('モードの説明が2行以内 (393px)', layout.descLines.every((lines) => lines <= 2), layout.descLines);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-home.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-home.png') });
 
     step('オープニングはタップで即スキップできる');
     await page.reload({ waitUntil: 'load' });
@@ -320,7 +320,7 @@ async function main() {
     check('手数 4', start.moves === '4', start);
     check('制限時間 10秒', start.turn === '10秒', start);
     check('スタートの補助が 4×4 · 10', start.sub === '4×4 · 10', start.sub);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-start-classic.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-start-classic.png') });
 
     step('PRO 未購入で 5×5 を押すと購入画面');
     await page.click('#start-sizes [data-size="5"]');
@@ -357,7 +357,7 @@ async function main() {
     const backgrounds = new Set(painted.slice(0, 10).map((tile) => tile.bg));
     check('0〜9 の背景色がすべて違う', backgrounds.size === 10, [...backgrounds].slice(0, 3));
     check('数字の文字は濃い紺（rgb(21, 32, 70) 系）', painted.every((tile) => /rgb\((1[0-9]|2[0-9]|3[0-9]), (2[0-9]|3[0-9]|4[0-9]), (5[0-9]|6[0-9]|7[0-9])\)/.test(tile.color)), painted[0].color);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-colors.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-colors.png') });
 
     step('タイマー警告色（残り3秒以下）');
     await page.evaluate(() => window.__linezap.setTurnLeft(2500));
@@ -402,7 +402,7 @@ async function main() {
     check('1ライン消しで手数は減らない（4のまま）', afterClear.moves === 4, afterClear);
     check('消すとタイマーが満タンに戻る', afterClear.turnLeft > 8000 && afterClear.limit === 10000, afterClear);
     await waitToast(page);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-play.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-play.png') });
 
     step('0秒で時間切れゲームオーバー');
     await page.evaluate(() => window.__linezap.setTurnLeft(600));
@@ -415,7 +415,7 @@ async function main() {
     const overMoves = await page.evaluate(() => window.__linezap.game.moves);
     check('手数が残っていても終わる', overMoves > 0, overMoves);
     await waitToast(page);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-result-timeout.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-result-timeout.png') });
 
     /* ---------------------------------------------------------------- */
     /* 3. PRO（5×5・6×6・120秒・180秒）                                  */
@@ -439,7 +439,7 @@ async function main() {
     for (let i = 0; i < 7; i += 1) await page.click('#sheet-start [data-target-step="1"]');
     const value5b = Number(await page.textContent('#start-target-value'));
     check('目標ステッパーが動く', value5b > 18, { value5b });
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-start-5.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-start-5.png') });
     await page.click('#btn-start');
     await page.waitForSelector('#screen-play.is-active');
     await settle(page, 260);
@@ -470,7 +470,7 @@ async function main() {
     });
     check('6×6 で1マス44px以上', tileSize.w >= 44 && tileSize.h >= 44, tileSize);
     check('6×6 が横にはみ出さない', tileSize.wrapRight <= tileSize.viewport, tileSize);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-play-6.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-play-6.png') });
 
     /* ---------------------------------------------------------------- */
     /* 4. タイムアタック（60/120/180秒）                                  */
@@ -490,7 +490,7 @@ async function main() {
     check('タイムアタックでは手数を出さない', start.movesHidden === true, start);
     check('制限時間 60秒', start.turn === '60秒', start.turn);
     check('スタートの補助が 4×4 · 10 · 60秒', start.sub === '4×4 · 10 · 60秒', start.sub);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-start-time.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-start-time.png') });
 
     step('タイムアタック 180秒（PRO）を選ぶ');
     await page.click('#start-chips [data-time="180"]');
@@ -502,7 +502,7 @@ async function main() {
     await page.waitForTimeout(150);
     start = await readStart(page);
     check('タイムアタック 6×6 の目標は基準 24', start.target === '24', start.target);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-start-time-6.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-start-time-6.png') });
     await page.click('#btn-start');
     await page.waitForSelector('#screen-play.is-active');
     await settle(page, 250);
@@ -526,7 +526,7 @@ async function main() {
     check('制限時間バーも手数もヒント−2も出ない', timeState.turnbarHidden === true && timeState.movesHidden === true && timeState.costHidden === true, timeState);
     check('36マス・目標24', timeState.tiles === 36 && timeState.target === '24', timeState);
     await waitToast(page);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-play-time.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-play-time.png') });
 
     step('タイムアタック 0秒で終了');
     await page.evaluate(() => {
@@ -581,20 +581,20 @@ async function main() {
     check('あそびかたに「十字」が無い', !howtoText.includes('十字'), howtoText.slice(0, 80));
     check('PRO の図（5×5・6×6・120s・180s）がある', await page.$eval('#sheet-howto .diag--pro', (node) => node.textContent.includes('5×5')));
     await page.evaluate(() => (document.querySelector('#sheet-howto .sheet__body').scrollTop = 0));
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-howto.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-howto.png') });
     await page.evaluate(() => window.__linezap.closeSheet());
 
     step('設定画面');
     await page.evaluate(() => window.__linezap.openSheet('settings'));
     await page.waitForSelector('#sheet-settings:not([hidden])');
     const version = await page.textContent('#settings-version');
-    check('設定に Build 5 が出る', version.includes('Build 5'), version);
+    check('設定に Build 6 が出る', version.includes('Build 6'), version);
     check('合計ステッパーは無い', (await page.$$('#set-target')).length === 0);
     const settingsText = await page.textContent('#sheet-settings');
     check('開始画面での選択を案内している', settingsText.includes('スタート画面'));
     check('設定に「十字」が無い', !settingsText.includes('十字'));
     check('基準 18 / 24 を案内している', settingsText.includes('基準18') || settingsText.includes('基準 18'), settingsText.slice(0, 0));
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-settings.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-settings.png') });
     await page.evaluate(() => window.__linezap.closeSheet());
 
     /* ---------------------------------------------------------------- */
@@ -613,7 +613,7 @@ async function main() {
     check('ホームが横にはみ出さない (375px・特大)', layout.pageOverflowX <= 0, layout.pageOverflowX);
     check('モード名が折り返さない (375px・特大)', layout.modeNames.every((item) => item.lines === 1), layout.modeNames);
     check('モードの説明が2行以内 (375px・特大)', layout.descLines.every((lines) => lines <= 2), layout.descLines);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-home-375-xl.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-home-375-xl.png') });
 
     step('375px・特大の開始前ページ（タイムアタック）');
     await page.evaluate(() => window.__linezap.setEntitled(true));
@@ -625,7 +625,7 @@ async function main() {
       return { right: sheet.right, viewport: window.innerWidth, overflowX: body.scrollWidth - body.clientWidth, scrollable: body.scrollHeight > body.clientHeight };
     });
     check('開始前ページが横にはみ出さない (375px・特大)', sheetFits.right <= sheetFits.viewport && sheetFits.overflowX <= 1, sheetFits);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-start-375-xl.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-start-375-xl.png') });
     await page.evaluate(() => window.__linezap.closeSheet());
 
     step('375px・特大の 6×6（タイマー付き）');
@@ -646,7 +646,7 @@ async function main() {
       return { barTop: bar.top, hudBottom: hud.bottom, right: bar.right, viewport: window.innerWidth };
     });
     check('タイマーが HUD の下に収まる', turn375.barTop >= turn375.hudBottom - 2 && turn375.right <= turn375.viewport, turn375);
-    await page.screenshot({ path: resolve(OUT, 'linezap-b5-play-375-xl.png') });
+    await page.screenshot({ path: resolve(OUT, 'linezap-b6-play-375-xl.png') });
 
     step('393px・特大のプレイ（元に戻して確認）');
     await page.setViewportSize({ width: 393, height: 852 });
@@ -750,7 +750,7 @@ async function main() {
         for (const shot of reviewShots) {
           await target.evaluate((entitled) => window.__linezap.setEntitled(entitled), Boolean(shot.entitled));
           await shot.run(target);
-          const file = resolve(OUT, `linezap-b5-${shot.name}-${tag}.png`);
+          const file = resolve(OUT, `linezap-b6-${shot.name}-${tag}.png`);
           await target.screenshot({ path: file });
           const size = pngSize(file);
           check(`${tag} ${shot.name} が ${expected.width}×${expected.height}`, size.width === expected.width && size.height === expected.height, size);
@@ -772,11 +772,11 @@ async function main() {
     check('404 がゼロ', badResponses.length === 0, badResponses.slice(0, 5));
 
     const ng = checks.filter((item) => !item.ok).length;
-    console.log(`\nLINEZAP Build 5 — ${checks.length} checks, ${checks.length - ng} passed`);
+    console.log(`\nLINEZAP Build 6 — ${checks.length} checks, ${checks.length - ng} passed`);
     if (ng > 0) process.exitCode = 1;
   } catch (error) {
     console.error(`\n${error.message}`);
-    console.log(`\nLINEZAP Build 5 — ${checks.length} checks, ${checks.filter((item) => item.ok).length} passed (stopped on failure)`);
+    console.log(`\nLINEZAP Build 6 — ${checks.length} checks, ${checks.filter((item) => item.ok).length} passed (stopped on failure)`);
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
