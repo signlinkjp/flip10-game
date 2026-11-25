@@ -269,8 +269,8 @@ test('結果シートとタイマーバーがあり、復活の合図を出せ�
   assert.ok(CSS.includes('@keyframes turnbar-refill'));
 });
 
-test('Build 6 の目印（ビルド番号と検証用の窓口）', () => {
-  assert.equal(core.BUILD, 6);
+test('Build 7 の目印（ビルド番号と検証用の窓口）', () => {
+  assert.equal(core.BUILD, 7);
   for (const hook of ['audio,', 'haptics,', 'setTimeLeft(', 'async swap(a, b)']) {
     assert.ok(MAIN.includes(hook), `検証用の窓口 ${hook} が無い`);
   }

@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#eef6ff" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="app-build" content="Build 6" />
+<meta name="app-build" content="Build 7" />
 <meta name="description" content="LINEZAP — swap two tiles, match the target, clear the line. A one-player puzzle." />
 <link rel="icon" href="assets/linezap-appicon-1024.png" />
 <link rel="apple-touch-icon" href="assets/linezap-appicon-1024.png" />
@@ -143,16 +143,17 @@
     <div class="movesbar" id="movesbar" aria-hidden="true"><span id="moves-pips"></span></div>
 
     <div class="board-area">
+      <!-- 目標の数字はプレイ画面の主役（Build 7 で大きく出す） -->
+      <div class="targetbar" id="targetbar">
+        <span class="targetbar__key" data-i18n="target.label">目標</span>
+        <b id="target-text">10</b>
+      </div>
       <div class="board-wrap" id="board-wrap">
         <div class="board" id="board" role="group" aria-label="LINEZAP board"></div>
         <div class="sums sums--rows" id="sums-rows" aria-hidden="true"></div>
         <div class="sums sums--cols" id="sums-cols" aria-hidden="true"></div>
         <div class="board__fx" id="fx" aria-hidden="true"></div>
         <div class="timerbar" id="timerbar" hidden><i id="timerbar-fill"></i></div>
-      </div>
-      <div class="targetbar" id="targetbar">
-        <span class="targetbar__key" data-i18n="target.label">目標</span>
-        <b id="target-text">10</b>
       </div>
       <div class="combo" id="combo" role="status" aria-live="polite">
         <b id="combo-word"></b>

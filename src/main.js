@@ -1,5 +1,5 @@
 /**
- * LINEZAP — 画面と操作（Build 6）
+ * LINEZAP — 画面と操作（Build 7）
  *
  * ルールは src/core.js、文言は src/i18n.js、音は src/audio.js、
  * バイブは src/haptics.js、課金は src/pro.js、記録は src/storage.js。
@@ -240,8 +240,13 @@ const startMemory = { classic: core.FREE_SIZE, time: core.FREE_SIZE };
 /** タイムアタックで最後に選んだ時間（秒） */
 let startTimeMemory = core.FREE_TIME_LIMIT;
 
+/**
+ * 開始前ページに入れる合計（Build 7）。
+ * クラシックはいつもそのサイズの基準数（10 / 18 / 24）、
+ * タイムアタックは最後に選んだ値。古い保存値に引きずられない。
+ */
 function startTargetFor(modeId, size) {
-  return storage.targetFor(state.settings, modeId, size);
+  return storage.targetForStart(state.settings, modeId, size);
 }
 
 /** 開始前ページを開く（クラシック / タイムアタック） */
@@ -422,7 +427,11 @@ function stepStartTarget(step) {
   const next = Math.min(bounds.max, Math.max(bounds.min, state.start.target + step));
   if (next === state.start.target) return;
   state.start.target = next;
-  state.settings = storage.rememberTarget(state.settings, mode.id, size, next);
+  // クラシックは基準数から始める決まりなので、選び直した値を端末に残さない
+  // （タイムアタックだけ「最後に選んだ合計」を覚える）
+  if (mode.id !== 'classic') {
+    state.settings = storage.rememberTarget(state.settings, mode.id, size, next);
+  }
   renderStart();
   audio.tap();
   haptics.select();
@@ -579,7 +588,8 @@ function renderSums(game, { clearedRows = [], clearedCols = [] } = {}) {
   const colNodes = $$('#sums-cols .sum');
   rowNodes.forEach((node, r) => {
     const value = rows[r];
-    node.textContent = `${show ? value : hidden}/${rowTarget}`;
+    // 「今の合計」を大きく、「/目標」を少し小さく（Build 7: 一目で読めるように）
+    node.innerHTML = `<span class="sum__val">${show ? value : hidden}<i>/${rowTarget}</i></span>`;
     node.classList.toggle('is-hit', show && value === rowTarget);
     node.classList.toggle('is-near', show && value !== rowTarget && Math.abs(value - rowTarget) <= 2);
     node.classList.remove('is-cleared');
@@ -592,7 +602,7 @@ function renderSums(game, { clearedRows = [], clearedCols = [] } = {}) {
   });
   colNodes.forEach((node, c) => {
     const value = cols[c];
-    node.textContent = `${show ? value : hidden}/${colTarget}`;
+    node.innerHTML = `<span class="sum__val">${show ? value : hidden}<i>/${colTarget}</i></span>`;
     node.classList.toggle('is-hit', show && value === colTarget);
     node.classList.toggle('is-near', show && value !== colTarget && Math.abs(value - colTarget) <= 2);
     node.classList.remove('is-cleared');
@@ -858,8 +868,9 @@ function startGame(modeId, { size, target, timeLimit } = {}) {
     target: chosen,
     timeLimit: limit,
   });
-  // 次に開いたときに同じ目標・時間で始められるよう、選んだ値を覚えておく
-  if (!core.targetBounds(boardSize).fixed) {
+  // タイムアタックは次に開いたときも同じ目標で始められるよう、選んだ値を覚えておく。
+  // クラシックは毎回基準数から始めるので覚えない（Build 7）。
+  if (!core.targetBounds(boardSize).fixed && mode.id !== 'classic') {
     state.settings = storage.rememberTarget(state.settings, mode.id, boardSize, state.game.targets.rows);
   }
   state.start = {

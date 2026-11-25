@@ -10,9 +10,15 @@
  *   初期値（＝サイズを切り替えたときの値）は基準目標 4×4=10 / 5×5=18 / 6×6=24。
  *   十字フリップを外したので `cross5` / `cross6` は読まない（あっても捨てる）。
  *   古い `target` / `rowTarget` は 5×5・6×6 のクラシックに引き継ぐ。
+ *
+ * Build 7 から:
+ *   クラシックの開始前ページは `targetForStart()` を使い、いつもそのサイズの基準数
+ *   （4×4=10 / 5×5=18 / 6×6=24）から始める。Build 3〜6 の試遊で localStorage に
+ *   残った古い目標（5×5 に 13、6×6 に 18 など）に引きずられない。
+ *   タイムアタックは今までどおり選んだ合計を覚える。
  */
 
-import { DEFAULT_TARGET, clampTarget, FREE_SIZE, defaultTargetFor } from './core.js';
+import { DEFAULT_TARGET, clampTarget, FREE_SIZE, SIZES, baseTargetFor, defaultTargetFor } from './core.js';
 import { DEFAULT_LOCALE, detectLocale, isLocale } from './i18n.js';
 
 // キー名は FLIP 10 時代のまま（改名でユーザーのベストと設定を失わないため）
@@ -161,6 +167,20 @@ export function updateSettings(patch, store = createStore()) {
 export function targetFor(settings, modeId, size = FREE_SIZE) {
   const saved = settings && settings.targets ? settings.targets[targetKey(modeId, size)] : undefined;
   return clampTarget(saved ?? defaultTargetFor(size), size);
+}
+
+/**
+ * 開始前ページを開いたときに入れる合計（Build 7）。
+ *
+ * クラシックは、保存値ではなく必ずそのサイズの基準数から始める。
+ * こうしておくと、前のバージョンで選んだ（あるいは古い Build が書き残した）13 や 18 が
+ * 5×5 の基準 18・6×6 の基準 24 とズレたまま開始前ページに出ることがない。
+ * タイムアタックは今までどおり、最後に選んだ合計を覚えておく。
+ */
+export function targetForStart(settings, modeId, size = FREE_SIZE) {
+  const boardSize = SIZES.includes(Number(size)) ? Number(size) : FREE_SIZE;
+  if (modeId === 'classic') return baseTargetFor(boardSize);
+  return targetFor(settings, modeId, boardSize);
 }
 
 /** その盤面サイズで実際に使う合計（4×4 は 10 固定、5×5 / 6×6 は設定値） */

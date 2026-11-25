@@ -4,7 +4,7 @@
  *
  * 確かめること:
  *   オープニング（LINEZAP ロゴ＋黄金ライン）が出て、タップで即スキップ
- *   タイトルと表示名が LINEZAP・メタが Build 6
+ *   タイトルと表示名が LINEZAP・メタが Build 7（Build 6 の回帰）
  *   ホームは2モード（クラシック / タイムアタック）。十字フリップの文字はどこにも無い
  *   開始前ページ: サイズボタンに「基準 10 / 18 / 24」、4×4 は無料・5×5/6×6 は PRO
  *   タイムアタック: 60秒は無料、120秒・180秒は PRO。5×5/6×6 は PRO
@@ -254,7 +254,7 @@ async function main() {
     await page.waitForFunction(() => Boolean(window.__linezap));
     check('タイトルが LINEZAP', (await page.title()) === 'LINEZAP', await page.title());
     check('左上のブランドが LINEZAP', (await page.textContent('.brand__name')).trim() === 'LINEZAP');
-    check('メタのビルドが Build 6', (await page.getAttribute('meta[name="app-build"]', 'content')) === 'Build 6');
+    check('メタのビルドが Build 7', (await page.getAttribute('meta[name="app-build"]', 'content')) === 'Build 7');
     await page.click('#btn-lang-home');
     await page.waitForSelector('#sheet-language:not([hidden])');
     await page.click('#lang-grid [data-locale="ja"]');
@@ -588,7 +588,7 @@ async function main() {
     await page.evaluate(() => window.__linezap.openSheet('settings'));
     await page.waitForSelector('#sheet-settings:not([hidden])');
     const version = await page.textContent('#settings-version');
-    check('設定に Build 6 が出る', version.includes('Build 6'), version);
+    check('設定に Build 7 が出る', version.includes('1.0.1 (Build 7)'), version);
     check('合計ステッパーは無い', (await page.$$('#set-target')).length === 0);
     const settingsText = await page.textContent('#sheet-settings');
     check('開始画面での選択を案内している', settingsText.includes('スタート画面'));

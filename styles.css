@@ -1,5 +1,5 @@
 /* ============================================================
-   LINEZAP — styles (Build 6)
+   LINEZAP — styles (Build 7)
    明るいポップなライトテーマ。iPhone（375 / 393px）基準。
    青＝選んだマス / 金＝消えるライン / 水色〜ミントの背景。
    文字サイズは html[data-text] で 標準 / 大きめ / 特大 の3段階。
@@ -364,7 +364,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 4px 2px 8px;
+  padding: 6px 2px 10px;
   flex: none;
 }
 
@@ -377,8 +377,8 @@ svg {
 
 .brand__mark {
   position: relative;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   flex: none;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -423,13 +423,13 @@ svg {
 
 .brand__name {
   font-weight: 900;
-  font-size: 1.15rem;
+  font-size: 1.3rem;
   letter-spacing: 0.06em;
   color: var(--ink);
 }
 
 .brand__sub {
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   letter-spacing: 0.24em;
   color: var(--muted);
   font-weight: 700;
@@ -442,15 +442,15 @@ svg {
 }
 
 .icon-btn {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
   display: grid;
   place-items: center;
   background: var(--card);
   border: 1px solid var(--line);
   color: var(--ink);
-  font-size: 21px;
+  font-size: 24px;
   box-shadow: var(--shadow-sm);
   transition: transform 0.12s ease, background 0.15s ease;
 }
@@ -593,17 +593,17 @@ svg {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   text-align: center;
-  padding: 2px 0 6px;
+  padding: 4px 0 10px;
 }
 
 .hero__demo {
-  --cell: 34px;
+  --cell: 38px;
   display: grid;
   grid-template-columns: repeat(3, var(--cell));
-  gap: 5px;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin-bottom: 8px;
   animation: floaty 5.5s ease-in-out infinite;
 }
 
@@ -615,7 +615,7 @@ svg {
   display: grid;
   place-items: center;
   font-weight: 900;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   color: var(--ink);
   background: linear-gradient(180deg, #ffffff, #eaf3ff);
   box-shadow: var(--shadow-sm);
@@ -663,8 +663,8 @@ svg {
 }
 
 .hero__tagline {
-  margin: 6px 0 12px;
-  font-size: 0.85rem;
+  margin: 8px 0 16px;
+  font-size: 0.92rem;
   color: var(--muted);
   font-weight: 600;
   max-width: 36ch;
@@ -672,9 +672,9 @@ svg {
 
 .btn-play {
   position: relative;
-  width: min(78vw, 330px);
-  padding: 14px 20px 12px;
-  border-radius: 24px;
+  width: min(86vw, 360px);
+  padding: 18px 22px 16px;
+  border-radius: 28px;
   color: #fff;
   background: linear-gradient(165deg, #6a9dff 0%, #2f6bff 46%, #1a3fbe 100%);
   box-shadow:
@@ -694,13 +694,13 @@ svg {
 }
 
 .btn-play__label {
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   font-weight: 900;
   letter-spacing: 0.12em;
 }
 
 .btn-play__sub {
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.16em;
   opacity: 0.85;
@@ -709,26 +709,26 @@ svg {
 .hero__best {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 12px;
-  padding: 6px 14px;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 9px 18px;
   border-radius: 999px;
   background: var(--card);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   font-weight: 700;
   color: var(--muted);
 }
 
 .hero__best strong {
   color: var(--ink);
-  font-size: 0.95rem;
+  font-size: 1.15rem;
 }
 
 .hero__best-star {
   color: var(--gold);
-  font-size: 16px;
+  font-size: 20px;
 }
 
 /* ---------------------------- mode cards ---------------------------- */
@@ -737,13 +737,13 @@ svg {
   flex: none;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 4px 0 8px;
+  gap: 10px;
+  padding: 6px 0 12px;
 }
 
 .mode {
   position: relative;
-  border-radius: 18px;
+  border-radius: 20px;
   background: var(--card);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
@@ -754,9 +754,9 @@ svg {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   text-align: left;
-  padding: 10px 12px 11px;
+  padding: 14px 14px 15px;
 }
 
 .mode:active .mode__main {
@@ -772,15 +772,15 @@ svg {
 }
 
 .mode__name {
-  font-size: 0.82rem;
+  font-size: 0.95rem;
   font-weight: 800;
   color: var(--ink);
   white-space: nowrap;
 }
 
 .mode__desc {
-  font-size: 0.66rem;
-  line-height: 1.28;
+  font-size: 0.74rem;
+  line-height: 1.32;
   color: var(--muted);
   font-weight: 600;
   /* 辞書の「\n」で 2行に分ける（「手数ライ／フ」のような不自然な折り返しを作らない） */
@@ -791,33 +791,33 @@ svg {
 .mode__sizes {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 3px;
+  gap: 5px;
+  margin-top: 7px;
 }
 
 .mode__sizes b {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border-radius: 6px;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 8px;
   background: var(--card-2);
   border: 1px solid var(--line);
-  font-size: 0.54rem;
+  font-size: 0.62rem;
   font-weight: 800;
   color: var(--muted);
 }
 
 .mode__sizes i {
   font-style: normal;
-  font-size: 0.46rem;
+  font-size: 0.52rem;
   font-weight: 900;
   color: var(--gold-ink);
 }
 
 .mode__sizes svg {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   color: var(--gold-ink);
 }
 
@@ -831,28 +831,29 @@ svg {
 .homefoot {
   flex: none;
   display: flex;
-  gap: 8px;
-  padding: 2px 0 10px;
+  gap: 10px;
+  padding: 4px 0 12px;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 9px 14px;
+  gap: 7px;
+  min-height: 50px;
+  padding: 12px 16px;
   border-radius: 999px;
   background: var(--card);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
-  font-size: 0.74rem;
+  font-size: 0.84rem;
   font-weight: 800;
   color: var(--ink);
   white-space: nowrap;
 }
 
 .pill svg {
-  font-size: 15px;
+  font-size: 18px;
   color: var(--muted);
 }
 
@@ -1035,7 +1036,7 @@ svg {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .board-wrap {
@@ -1101,9 +1102,15 @@ svg {
 
 .board-wrap.is-6 .sum {
   min-width: 0;
+  min-height: 22px;
   padding: 0 2px;
   border-radius: 7px;
-  font-size: 0.6rem;
+  font-size: 0.68rem;
+}
+
+/* 下の列の合計は盤面の幅いっぱいに並ぶので、6×6 でも少し大きく読める */
+.board-wrap.is-6 .sums--cols .sum {
+  font-size: 0.78rem;
 }
 
 .board-wrap.is-6 .tile {
@@ -1288,18 +1295,34 @@ svg {
 .sum {
   display: grid;
   place-items: center;
-  min-width: 30px;
-  min-height: 24px;
+  min-width: 34px;
+  min-height: 26px;
   padding: 0 4px;
   border-radius: 9px;
   background: var(--card);
   border: 1px solid var(--line);
   color: var(--ink);
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   box-shadow: 0 2px 6px rgba(38, 70, 140, 0.10);
   transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+/* 「今の合計」を大きく、「/目標」を少し小さく（Build 7） */
+.sum__val {
+  display: inline-block;
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.sum i {
+  font-style: normal;
+  font-size: 0.74em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-left: 1px;
 }
 
 .sum.is-near {
@@ -1308,12 +1331,21 @@ svg {
   color: #7a4a00;
 }
 
+.sum.is-near i {
+  color: #8a5a10;
+}
+
 .sum.is-hit,
 .sum.is-cleared {
   background: linear-gradient(180deg, #ffe98a, var(--gold));
   border-color: #ffcf3f;
   color: #4a2c00;
   transform: scale(1.06);
+}
+
+.sum.is-hit i,
+.sum.is-cleared i {
+  color: #6b4000;
 }
 
 .sum.is-cleared {
@@ -1451,6 +1483,14 @@ svg {
 
 .playfoot .pill {
   flex: 1;
+  min-height: 44px;
+  padding: 10px 8px;
+  gap: 5px;
+  font-size: 0.78rem;
+}
+
+.playfoot .pill svg {
+  font-size: 16px;
 }
 
 #btn-hint-foot.is-off {
@@ -1724,39 +1764,39 @@ svg {
   font-weight: 900;
 }
 
-/* プレイ中の合計（行 / 列） */
+/* プレイ中の目標（Build 7: プレイ画面の主役として大きく出す） */
 .targetbar {
   flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: inline-flex;
+  align-items: baseline;
   justify-content: center;
-  gap: 2px 7px;
+  gap: 10px;
   width: fit-content;
+  min-width: 128px;
   max-width: 94vw;
   margin: 0 auto;
-  padding: 5px 14px;
-  border-radius: 999px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-sm);
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 700;
+  padding: 4px 26px 9px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, #fffdf4 0%, #fff0bd 100%);
+  border: 2px solid #ffe08a;
+  box-shadow: 0 10px 24px rgba(255, 183, 3, 0.22), inset 0 1px 0 #ffffff;
   text-align: center;
 }
 
 .targetbar__key {
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: var(--gold-ink);
 }
 
 .targetbar b {
   color: var(--ink);
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-size: 3.1rem;
+  line-height: 1;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .diag--moves {
@@ -2283,6 +2323,18 @@ svg {
     display: none;
   }
 
+  .targetbar b {
+    font-size: 2.4rem;
+  }
+
+  .targetbar {
+    padding: 3px 22px 7px;
+  }
+
+  .board-area {
+    gap: 8px;
+  }
+
   .hero__logo {
     font-size: clamp(2.1rem, 11vw, 2.9rem);
   }
@@ -2331,10 +2383,11 @@ svg {
   }
 }
 
-/* 背の低い端末（667px など）でモードカードが増えてもホームが溢れないように */
+/* 背の低い端末（667px など）でモードカードが増えてもホームが溢れないように。
+   余った高さは上の見出しと「あそぶ」の間に均等に配る（下に大きな空白を作らない）。 */
 @media (max-height: 760px) {
   .hero {
-    justify-content: flex-start;
+    justify-content: space-evenly;
     padding-top: 2px;
   }
 

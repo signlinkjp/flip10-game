@@ -1,7 +1,7 @@
 # LINEZAP
 
 好きな2マスを入れ替えて、行か列の合計を**目標の数字**にそろえて消す1人用パズル。
-HTML / CSS / JavaScript（素の ES Modules）＋ Capacitor 8 の iOS アプリ。**Build 6**。
+HTML / CSS / JavaScript（素の ES Modules）＋ Capacitor 8 の iOS アプリ。**Build 7**（1.0.1）。
 
 ![home](../downloads/linezap-b5-home.png)
 
@@ -52,8 +52,10 @@ Build 5 で十字フリップ（＋の字が反転・表裏で5）は遊び方�
 | 6×6 | **12〜42** | **24** |
 
 サイズボタン（`4×4` / `5×5` / `6×6`）の中に **「基準 10」「基準 18」「基準 24」**（12言語対応）を出している。
-サイズを切り替えたとき、まだそのサイズで目標を変えていなければ基準目標が入る。
-最後に選んだ目標はモード×マス数ごとに覚えておき、次に開いたときの初期値になる。
+**クラシックの開始前ページは、いつもそのサイズの基準数から始まる（Build 7）**。
+前のバージョンで選んだ値や、古い Build が localStorage に書き残した値（5×5 に 13、6×6 に 18 など）には
+引きずられない。開始前ページのステッパー（12〜42）はその場で使えるが、次に開いたときはまた基準数に戻る。
+タイムアタック（とリザルトの「もう一度」）は、選んだ目標をそのまま使う。
 
 設定画面の「消える合計」ステッパーは Build 4 で無くした（開始前ページに一本化）。
 
@@ -101,6 +103,17 @@ Build 5 で十字フリップ（＋の字が反転・表裏で5）は遊び方�
   `setActive(false)` する（ホーム画面に BGM を残さない）。
 - 設定・あそびかたを開いている間はタイマーを止める（ターンタイマーで理不尽に終わらない）。
 
+## Build 7 の変更（トモアキさん要望）
+
+1. **クラシックの基準数とスタート数の不一致を修正**。開始前ページは `storage.targetForStart()` を通り、
+   クラシックは毎回 4×4=10 / 5×5=18 / 6×6=24 から始まる（`storage.targetFor()` は保存値をそのまま読むので、
+   タイムアタックの「最後に選んだ目標」は今までどおり）。
+2. **プレイ画面の目標数を大きく**。目標は盤面の上に大きなカード（数字は約3rem）で出し、
+   右と下の合計は「今の合計」を大きく、「/目標」を少し小さくして1行に収めた（6×6 も折り返さない）。
+   空いていた縦の余白に目標カードを置き、盤面を中心に保つ。
+3. **ホーム画面のボタンを拡大**。あそぶボタン・モードカード・サイズの目印・下部の言語/PRO・右上の
+   アイコンを大きくし、縦画面に収まるよう余白を配り直した（375px・特大文字でもはみ出さない）。
+
 ## Build 6 の修正（トモアキさん報告）
 
 ### 1. ゲーム中にフリーズする
@@ -129,7 +142,7 @@ Build 5 で十字フリップ（＋の字が反転・表裏で5）は遊び方�
 ## 遊び方（開発）
 
 ```bash
-npm test          # ルールと Build 6 の検品（node --test）
+npm test          # ルールと Build 6/7 の検品（node --test）
 npm run e2e       # 実 Chromium で「時間切れ」「ギリギリのコンボ」「連打・ドラッグ中断」を操作検証
 npm run serve     # http://localhost:4173 （?test=1 で検証用の窓口が付く）
 npm run shots     # 実 Chromium で操作テスト＋スクリーンショット
@@ -139,7 +152,8 @@ python3 tools/build-i18n.py   # 12言語の表から src/i18n.js を作り直す
 python3 tools/make-icon.py    # アイコンを各サイズに書き出す
 ```
 
-スクリーンショットは `/workspace/downloads/linezap-b6-*.png`
+スクリーンショットは `/workspace/downloads/linezap-b7-*.png`（Build 7 の見た目）と
+`/workspace/downloads/linezap-b6-*.png`（Build 6 の回帰）
 （`-opening` / `-home` / `-start-classic` / `-start-time` / `-play` / `-play-6` / `-play-time` /
 `-result-timeout` / `-howto` / `-settings` と 375px・特大の `-home-375-xl` / `-start-375-xl` / `-play-375-xl`）。
 審査用の 6.3インチ（1206×2622）と iPad 13インチ（2064×2752）は `-63` / `-ipad13` の名前で同じ場所に出す。
@@ -167,10 +181,14 @@ python3 tools/make-icon.py    # アイコンを各サイズに書き出す
 完全オフライン・1人プレイ。アカウントなし、入力欄なし、広告・解析なし。
 スコアと設定はこの端末の中だけに残り、アプリを消すと一緒に消える。詳細は `docs/privacy.md`。
 
-## TestFlight（Build 6）
+## TestFlight（Build 7）
 
-1. `.github/workflows/ios-testflight-build1.yml` はそのまま（ビルド番号は iOS プロジェクトの
-   `CURRENT_PROJECT_VERSION` から自動で読むので、次のビルド以降も貼り替え不要）。
+1. `.github/workflows/ios-testflight-build1.yml`：ビルド番号（`CURRENT_PROJECT_VERSION`）は iOS プロジェクトから
+   自動で読むので貼り替え不要。ただし **`MARKETING_VERSION` は 1.0.1 に上げる**（`env:` の
+   `MARKETING_VERSION: "1.0.1"` と preflight の `assert 'MARKETING_VERSION = 1.0.1;' in pbx` の2か所）。
+   `pbxproj` を 1.0.1 にしたので、ここが 1.0.0 のままだと preflight が止まる。貼り付け用の控えは
+   `docs/ios-testflight-build1.yml`（1.0.1 に更新済み）。ワークフローの書き換えは GitHub App の権限外なので、
+   トモアキさんの手元（GitHub の Web エディタ等）で入れる。
    古いガード（十字フリップの `PAIR_SUM = 5` 等）は `src/core.js` / `index.html` の互換メモで満たしている。
 2. Actions →「LINEZAP iOS TestFlight」→ `confirm_bundle_id` に `jp.signlink.Flip10`、`upload_to_testflight` = true
 3. App Store Connect: アプリ `LINEZAP`（`jp.signlink.Flip10`）と非消耗型 IAP `jp.signlink.Flip10.pro`
@@ -178,7 +196,7 @@ python3 tools/make-icon.py    # アイコンを各サイズに書き出す
    ※ Bundle ID と IAP 製品 ID は登録済みのため **変更しない**（表示名だけ LINEZAP）
 
 ビルド番号は `ios/App/App.xcodeproj/project.pbxproj` の `CURRENT_PROJECT_VERSION`（Debug / Release 両方）で管理する。
-Build 6 で `6` に更新。ワークフローの preflight が食い違いを止める。
+Build 7 で `7` に更新（`MARKETING_VERSION` は 1.0.1）。ワークフローの preflight が食い違いを止める。
 
 ---
 

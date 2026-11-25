@@ -1,5 +1,5 @@
 /**
- * LINEZAP — ルールと盤面（Build 6）
+ * LINEZAP — ルールと盤面（Build 7）
  *
  * ここは DOM も音も知らない。盤面・入れ替え・ライン消去・コンボ・得点・手数・制限時間だけを持つ。
  * UI（src/main.js）もテストも、このファイルの関数だけを見る。
@@ -32,8 +32,8 @@
  * 下の「互換メモ」に昔の目印を残してある（動くコードではない）。
  */
 
-export const VERSION = '1.0.0';
-export const BUILD = 6;
+export const VERSION = '1.0.1';
+export const BUILD = 7;
 
 /** 4×4 の消える合計（固定） */
 export const DEFAULT_TARGET = 10;
