@@ -51,7 +51,7 @@ concurrency:
 env:
   BUNDLE_ID: jp.signlink.Flip10
   APP_NAME: LINEZAP
-  MARKETING_VERSION: "1.0.0"
+  MARKETING_VERSION: "1.0.1"
 
 jobs:
   preflight:
@@ -223,7 +223,7 @@ jobs:
           assert plist['CFBundleDisplayName'] == 'LINEZAP', plist['CFBundleDisplayName']
           pbx = pathlib.Path('ios/App/App.xcodeproj/project.pbxproj').read_text()
           assert 'PRODUCT_BUNDLE_IDENTIFIER = jp.signlink.Flip10;' in pbx
-          assert 'MARKETING_VERSION = 1.0.0;' in pbx
+          assert 'MARKETING_VERSION = 1.0.1;' in pbx
           version = os.environ['BUILD_NUMBER']
           assert f'CURRENT_PROJECT_VERSION = {version};' in pbx, 'BUILD_NUMBER と iOS の版番号が違います'
           print('iOS project contract OK (build %s)' % version)
@@ -319,8 +319,8 @@ jobs:
           test -f ios/App/App/public/src/i18n.js
           test -f ios/App/App/public/src/audio.js
           test -f ios/App/App/public/src/pro.js
-          test -f ios/App/App/public/assets/flip10-appicon-1024.png
-          grep -q 'FLIP 10' ios/App/App/public/index.html
+          test -f ios/App/App/public/assets/linezap-appicon-1024.png
+          grep -q 'LINEZAP' ios/App/App/public/index.html
           echo "Capacitor sync OK"
 
       - name: Archive (Xcode cloud signing)
